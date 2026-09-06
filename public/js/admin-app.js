@@ -18,13 +18,17 @@ const DEFAULT_RULES = {
 const POS_LABEL = { GK: 'Målmand', DEF: 'Forsvar', MID: 'Midtbane', ATT: 'Angreb' };
 
 const DEFAULT_PROFILE = {
-  trainings: 0,
   benchedAvailable: 0,
   width: { GK: 0, DEF: 0, MID: 0, ATT: 0 },
   roles: [],
   bestRole: '',
   notes: '',
 };
+
+let profileFilterPos = '';
+let profileSort = 'name';
+let profileSearch = '';
+let authBooted = false;
 
 let slotPickerTarget = null;
 
@@ -486,6 +490,7 @@ function renderPlayers() {
       markDirty();
       renderPlayers();
       renderMatchUI();
+      renderProfileList();
     });
   });
 }
@@ -525,7 +530,92 @@ function daDateToIso(da) {
 function ensureProfile(p) {
   if (!p.profile) p.profile = { ...DEFAULT_PROFILE, width: { ...DEFAULT_PROFILE.width } };
   if (!p.profile.width) p.profile.width = { ...DEFAULT_PROFILE.width };
+  if (p.profile.trainings != null) delete p.profile.trainings;
   return p.profile;
+}
+
+function ensureSquad() {
+  if (!state.squad) state.squad = { weeks: [] };
+  if (!state.squad.weeks) state.squad.weeks = [];
+  return state.squad;
+}
+
+function mondayOfWeek(d = new Date()) {
+  const x = new Date(d);
+  const day = x.getDay();
+  x.setDate(x.getDate() - (day === 0 ? 6 : day - 1));
+  return x.toISOString().slice(0, 10);
+}
+
+function wednesdayOfMonday(monIso) {
+  const x = new Date(monIso + 'T12:00:00');
+  x.setDate(x.getDate() + 2);
+  return x.toISOString().slice(0, 10);
+}
+
+function weekLabel(monIso) {
+  const d = new Date(monIso + 'T12:00:00');
+  const months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+  return `Uge ${monIso.slice(5)} · ${d.getDate()}. ${months[d.getMonth()]}`;
+}
+
+function totalTrainingSessions() {
+  return ensureSquad().weeks.length * 2;
+}
+
+function playerTrainingAttended(pi) {
+  let n = 0;
+  for (const w of ensureSquad().weeks) {
+    if (w.monAtt?.includes(pi)) n++;
+    if (w.wedAtt?.includes(pi)) n++;
+  }
+  return n;
+}
+
+function playerTrainingPct(pi) {
+  const total = totalTrainingSessions();
+  if (!total) return null;
+  return Math.round((playerTrainingAttended(pi) / total) * 100);
+}
+
+function playerMatchesPlayed(pi) {
+  return (state.matches || []).filter((m) => m.pl?.[pi] != null).length;
+}
+
+function playerMaxWidth(pi) {
+  const w = ensureProfile(state.players[pi]).width || {};
+  return Math.max(w.GK || 0, w.DEF || 0, w.MID || 0, w.ATT || 0);
+}
+
+function toggleTrainingAtt(weekIdx, day, playerIdx) {
+  const w = ensureSquad().weeks[weekIdx];
+  const key = day === 'mon' ? 'monAtt' : 'wedAtt';
+  if (!w[key]) w[key] = [];
+  const i = w[key].indexOf(playerIdx);
+  if (i >= 0) w[key].splice(i, 1);
+  else w[key].push(playerIdx);
+  markDirty();
+  renderProfileSummary();
+  renderProfileTable();
+}
+
+function deleteMatch(idx) {
+  if (!state.matches.length) return;
+  const m = state.matches[idx];
+  const label = `${formatDateLabel(m.d)} vs ${m.o || '?'}`;
+  if (!confirm(`Slet kampen ${label}?`)) return;
+  state.matches.splice(idx, 1);
+  if (!state.matches.length) {
+    state.matches.push({ d: '', o: '', gf: 0, ga: 0, pl: {}, lineup: { formation: '4-3-3', xi: [], bench: [] } });
+    matchIdx = 0;
+  } else if (matchIdx >= state.matches.length) {
+    matchIdx = state.matches.length - 1;
+  } else if (matchIdx > idx) {
+    matchIdx--;
+  }
+  markDirty();
+  renderMatchUI();
+  showToast('Kamp slettet');
 }
 
 function ensureMatch() {
@@ -686,6 +776,10 @@ function renderMatchDetail() {
   ).join('');
 
   $('match-detail').innerHTML = `
+    <div class="match-detail-head">
+      <h3 class="card__title">${esc(formatDateLabel(m.d))} · vs ${esc(m.o || 'TBD')}</h3>
+      <button type="button" id="btn-delete-match" class="btn btn--danger btn--sm">Slet kamp</button>
+    </div>
     <div class="card">
       <h3 class="card__title">Kampinfo</h3>
       <div class="match-meta">
@@ -783,6 +877,7 @@ function renderMatchDetail() {
   });
 
   $('btn-dbu-match')?.addEventListener('click', () => importDbuForMatch(m));
+  $('btn-delete-match')?.addEventListener('click', () => deleteMatch(matchIdx));
 }
 
 async function importDbuForMatch(m) {
@@ -863,69 +958,207 @@ function renderMatchUI() {
 
 // ——— Holdinfo ———
 
-function renderProfileList() {
-  const el = $('profile-list');
+function getFilteredPlayerIndices() {
+  let indices = state.players.map((_, i) => i);
+  if (profileFilterPos) indices = indices.filter((i) => state.players[i].pos === profileFilterPos);
+  if (profileSearch.trim()) {
+    const q = profileSearch.trim().toLowerCase();
+    indices = indices.filter((i) => state.players[i].n.toLowerCase().includes(q));
+  }
+  indices.sort((a, b) => {
+    const pa = state.players[a];
+    const pb = state.players[b];
+    if (profileSort === 'training') {
+      return (playerTrainingPct(b) ?? -1) - (playerTrainingPct(a) ?? -1);
+    }
+    if (profileSort === 'matches') return playerMatchesPlayed(b) - playerMatchesPlayed(a);
+    if (profileSort === 'benched') {
+      return (ensureProfile(pb).benchedAvailable || 0) - (ensureProfile(pa).benchedAvailable || 0);
+    }
+    if (profileSort === 'width') return playerMaxWidth(b) - playerMaxWidth(a);
+    return pa.n.localeCompare(pb.n, 'da');
+  });
+  return indices;
+}
+
+function renderProfileSummary() {
+  const el = $('profile-summary');
   if (!el) return;
-  if (!state.players.length) {
-    el.innerHTML = '<p class="hint">Tilføj spillere først.</p>';
+  const sessions = totalTrainingSessions();
+  const pcts = state.players.map((_, i) => playerTrainingPct(i)).filter((x) => x != null);
+  const avgPct = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0;
+  const lowAtt = state.players.filter((_, i) => {
+    const p = playerTrainingPct(i);
+    return p != null && p < 50;
+  }).length;
+  const totalBenched = state.players.reduce((s, p, i) => s + (ensureProfile(p).benchedAvailable || 0), 0);
+
+  el.innerHTML = `
+    <div class="profile-stat"><span class="profile-stat__val">${state.players.length}</span><span class="profile-stat__lbl">Spillere</span></div>
+    <div class="profile-stat"><span class="profile-stat__val">${ensureSquad().weeks.length}</span><span class="profile-stat__lbl">Træningsuger</span></div>
+    <div class="profile-stat"><span class="profile-stat__val">${sessions}</span><span class="profile-stat__lbl">Træningspas</span></div>
+    <div class="profile-stat"><span class="profile-stat__val">${avgPct}%</span><span class="profile-stat__lbl">Gns. deltagelse</span></div>
+    <div class="profile-stat"><span class="profile-stat__val">${lowAtt}</span><span class="profile-stat__lbl">&lt;50% træning</span></div>
+    <div class="profile-stat"><span class="profile-stat__val">${totalBenched}</span><span class="profile-stat__lbl">Oversiddet (ialt)</span></div>`;
+}
+
+function renderTrainingWeeks() {
+  const el = $('training-weeks');
+  if (!el) return;
+  const weeks = ensureSquad().weeks;
+  if (!weeks.length) {
+    el.innerHTML = '<p class="hint">Ingen træningsuger endnu. Klik + Uge for at starte.</p>';
     return;
   }
-  el.innerHTML = state.players.map((p, i) => {
-    const pr = ensureProfile(p);
-    const roles = (pr.roles || []).join(', ');
-    return `<article class="profile-card" data-i="${i}">
-      <div class="profile-card__head" data-toggle="${i}">
-        ${previewHtml(p, i, 36)}
-        <h3>${esc(p.n)}</h3>
-        <span class="hint">${esc(POS_LABEL[p.pos] || p.pos)}</span>
+
+  el.innerHTML = weeks.map((w, wi) => {
+    const mon = w.mon || '';
+    const wed = w.wed || (mon ? wednesdayOfMonday(mon) : '');
+    const rows = state.players.map((p, pi) => {
+      const monOn = w.monAtt?.includes(pi);
+      const wedOn = w.wedAtt?.includes(pi);
+      return `<tr>
+        <td>${esc(p.n)}</td>
+        <td><input type="checkbox" data-w="${wi}" data-day="mon" data-pi="${pi}" ${monOn ? 'checked' : ''}></td>
+        <td><input type="checkbox" data-w="${wi}" data-day="wed" data-pi="${pi}" ${wedOn ? 'checked' : ''}></td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="training-week" data-wi="${wi}">
+      <div class="training-week__head">
+        <span class="training-week__label">${esc(weekLabel(mon || '????-??-??'))}</span>
+        <label>Man <input type="date" data-w-mon="${wi}" value="${esc(mon)}"></label>
+        <label>Ons <input type="date" data-w-wed="${wi}" value="${esc(wed)}"></label>
+        <button type="button" class="btn btn--danger btn--sm" data-del-week="${wi}">Slet uge</button>
       </div>
-      <div class="profile-card__body" hidden>
-        <div class="profile-grid">
-          <div><label>Træninger deltaget</label><input type="number" min="0" data-f="trainings" value="${pr.trainings || 0}"></div>
-          <div><label>Kampe oversiddet (til rådighed)</label><input type="number" min="0" data-f="benchedAvailable" value="${pr.benchedAvailable || 0}"></div>
-          <div class="profile-grid--full"><label>Bredde per position (0–10)</label>
-            <div class="width-row">
-              ${['GK', 'DEF', 'MID', 'ATT'].map((pos) =>
-                `<div><label>${pos}</label><input type="number" min="0" max="10" data-f="width-${pos}" value="${pr.width?.[pos] || 0}"></div>`
-              ).join('')}
-            </div>
-          </div>
-          <div class="profile-grid--full"><label>Kan spille (kommasepareret)</label>
-            <input type="text" data-f="roles" value="${esc(roles)}" placeholder="HB, CB, VB"></div>
-          <div><label>Bedste rolle</label><input type="text" data-f="bestRole" value="${esc(pr.bestRole || '')}"></div>
-          <div class="profile-grid--full"><label>Noter</label>
-            <input type="text" data-f="notes" value="${esc(pr.notes || '')}"></div>
-        </div>
-      </div>
-    </article>`;
+      <table class="training-grid">
+        <thead><tr><th>Spiller</th><th>Man</th><th>Ons</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
   }).join('');
 
-  el.querySelectorAll('[data-toggle]').forEach((head) => {
-    head.addEventListener('click', () => {
-      const body = head.nextElementSibling;
-      body.hidden = !body.hidden;
+  el.querySelectorAll('[data-w-mon]').forEach((inp) => {
+    inp.addEventListener('change', () => {
+      const w = ensureSquad().weeks[+inp.dataset.wMon];
+      w.mon = inp.value;
+      if (!w.wed) w.wed = wednesdayOfMonday(w.mon);
+      markDirty();
+      renderTrainingWeeks();
     });
   });
-
-  el.querySelectorAll('.profile-card input').forEach((inp) => {
-    inp.addEventListener('input', () => {
-      const card = inp.closest('.profile-card');
-      const i = +card.dataset.i;
-      const pr = ensureProfile(state.players[i]);
-      const f = inp.dataset.f;
-      if (f.startsWith('width-')) {
-        pr.width[f.replace('width-', '')] = +inp.value || 0;
-      } else if (f === 'roles') {
-        pr.roles = inp.value.split(',').map((s) => s.trim()).filter(Boolean);
-      } else if (f === 'trainings' || f === 'benchedAvailable') {
-        pr[f] = +inp.value || 0;
-      } else {
-        pr[f] = inp.value.trim();
-      }
+  el.querySelectorAll('[data-w-wed]').forEach((inp) => {
+    inp.addEventListener('change', () => {
+      ensureSquad().weeks[+inp.dataset.wWed].wed = inp.value;
       markDirty();
     });
   });
+  el.querySelectorAll('[data-del-week]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!confirm('Slet træningsugen?')) return;
+      ensureSquad().weeks.splice(+btn.dataset.delWeek, 1);
+      markDirty();
+      renderProfileList();
+    });
+  });
+  el.querySelectorAll('input[type="checkbox"][data-w]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      toggleTrainingAtt(+cb.dataset.w, cb.dataset.day, +cb.dataset.pi);
+    });
+  });
 }
+
+function renderProfileTable() {
+  const el = $('profile-table-wrap');
+  if (!el) return;
+  const indices = getFilteredPlayerIndices();
+  if (!indices.length) {
+    el.innerHTML = '<p class="hint">Ingen spillere matcher filteret.</p>';
+    return;
+  }
+
+  const rows = indices.map((pi) => {
+    const p = state.players[pi];
+    const pr = ensureProfile(p);
+    const pct = playerTrainingPct(pi);
+    const pctCls = pct == null ? '' : pct < 50 ? ' profile-pct--low' : ' profile-pct--ok';
+    const pctTxt = pct == null ? '—' : `${pct}%`;
+    const roles = (pr.roles || []).join(', ');
+    const mp = playerMatchesPlayed(pi);
+    return `<tr data-pi="${pi}">
+      <td>${previewHtml(p, pi, 32)} ${esc(p.n)}</td>
+      <td>${esc(POS_LABEL[p.pos] || p.pos)}</td>
+      <td class="profile-pct${pctCls}">${pctTxt}<br><small>${playerTrainingAttended(pi)}/${totalTrainingSessions() || '—'}</small></td>
+      <td>${mp}</td>
+      <td><input type="number" min="0" class="width-mini" data-f="benched" value="${pr.benchedAvailable || 0}"></td>
+      <td><input type="text" data-f="roles" value="${esc(roles)}" placeholder="HB, CB…"></td>
+      <td><input type="text" data-f="bestRole" value="${esc(pr.bestRole || '')}"></td>
+      <td>
+        ${['GK', 'DEF', 'MID', 'ATT'].map((pos) =>
+          `<input type="number" min="0" max="10" class="width-mini" title="${pos}" data-f="width-${pos}" value="${pr.width?.[pos] || 0}">`
+        ).join('')}
+      </td>
+      <td><input type="text" data-f="notes" value="${esc(pr.notes || '')}"></td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<h3 class="card__title">Spilleroversigt</h3>
+    <p class="hint">Bredde: GK · DEF · MID · ATT (0–10). Kampe = spillede i fantasy.</p>
+    <div class="stats-table-wrap"><table class="profile-table">
+      <thead><tr>
+        <th>Spiller</th><th>Pos</th><th>Træning</th><th>Kampe</th><th>Oversiddet</th>
+        <th>Roller</th><th>Bedste</th><th>Bredde</th><th>Noter</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+
+  el.querySelectorAll('input').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      const pi = +inp.closest('tr').dataset.pi;
+      const pr = ensureProfile(state.players[pi]);
+      const f = inp.dataset.f;
+      if (f.startsWith('width-')) pr.width[f.replace('width-', '')] = +inp.value || 0;
+      else if (f === 'roles') pr.roles = inp.value.split(',').map((s) => s.trim()).filter(Boolean);
+      else if (f === 'benched') pr.benchedAvailable = +inp.value || 0;
+      else pr[f] = inp.value.trim();
+      markDirty();
+      renderProfileSummary();
+    });
+  });
+}
+
+function renderProfileList() {
+  if (!state?.players) return;
+  ensureSquad();
+  renderProfileSummary();
+  renderTrainingWeeks();
+  renderProfileTable();
+}
+
+$('btn-add-training-week')?.addEventListener('click', () => {
+  const mon = mondayOfWeek();
+  ensureSquad().weeks.unshift({
+    mon,
+    wed: wednesdayOfMonday(mon),
+    monAtt: [],
+    wedAtt: [],
+  });
+  markDirty();
+  renderProfileList();
+});
+
+$('profile-filter-pos')?.addEventListener('change', (e) => {
+  profileFilterPos = e.target.value;
+  renderProfileTable();
+});
+$('profile-sort')?.addEventListener('change', (e) => {
+  profileSort = e.target.value;
+  renderProfileTable();
+});
+$('profile-search')?.addEventListener('input', (e) => {
+  profileSearch = e.target.value;
+  renderProfileTable();
+});
 
 // ——— Gem ———
 
@@ -950,6 +1183,7 @@ async function saveSeason() {
     setSaveStatus('Alt er gemt. Holdet kan altid se stillingen på /standings.html', 'ok');
     state = await loadDefaultSeason();
     if (!state.rules) state.rules = DEFAULT_RULES;
+    ensureSquad();
     renderPlayers();
     renderMatchUI();
     renderProfileList();
@@ -968,6 +1202,7 @@ async function init() {
   await loadAvatarLibrary();
   state = await loadDefaultSeason();
   if (!state.rules) state.rules = DEFAULT_RULES;
+  ensureSquad();
   matchIdx = Math.max(0, (state.matches?.length || 1) - 1);
   markClean();
   setSaveStatus('');
@@ -987,6 +1222,21 @@ async function init() {
   renderProfileList();
 }
 
+async function enterApp(session) {
+  if (authBooted) return;
+  authBooted = true;
+  showApp();
+  try {
+    await init();
+    if (session?.access_token) {
+      ensureCoach(session.access_token).catch(() => {});
+    }
+  } catch (err) {
+    authBooted = false;
+    throw err;
+  }
+}
+
 async function boot() {
   const apiOk = await checkApi();
   const { supabase: sb, config } = await initSupabase();
@@ -999,14 +1249,32 @@ async function boot() {
   if ($('login-email')) $('login-email').required = useSupabase;
 
   if (useSupabase) {
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session && ['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED'].includes(event)) {
+        try {
+          await enterApp(session);
+        } catch (err) {
+          if (/invitelisten|403|godkende/i.test(err.message)) {
+            authBooted = false;
+            await supabase.auth.signOut();
+            showLogin();
+            $('login-err').textContent = err.message;
+            $('login-err').hidden = false;
+          }
+        }
+      } else if (event === 'SIGNED_OUT') {
+        authBooted = false;
+        showLogin();
+      }
+    });
+
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
-      showApp();
       try {
-        if (apiOk) await ensureCoach(session.access_token);
-        await init();
+        await enterApp(session);
       } catch (err) {
         if (/invitelisten|403|godkende/i.test(err.message)) {
+          authBooted = false;
           await supabase.auth.signOut();
           showLogin();
           $('login-err').textContent = err.message;
@@ -1014,12 +1282,20 @@ async function boot() {
         } else {
           $('api-banner').textContent = err.message;
           $('api-banner').hidden = false;
-          try { await init(); } catch { /* ignore */ }
         }
       }
       return;
     }
-    showLogin();
+
+    setTimeout(async () => {
+      if (authBooted) return;
+      const { data: { session: late } } = await supabase.auth.getSession();
+      if (late) {
+        try { await enterApp(late); } catch { /* ignore */ }
+      } else {
+        showLogin();
+      }
+    }, 400);
     return;
   }
 

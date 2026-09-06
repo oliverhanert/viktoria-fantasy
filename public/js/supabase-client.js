@@ -16,6 +16,7 @@ export async function initSupabase() {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      storageKey: 'vf-supabase-auth',
     },
   });
   return { supabase, config };

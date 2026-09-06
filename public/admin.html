@@ -112,8 +112,38 @@
     </section>
 
     <section id="tab-profile" class="tab">
-      <p class="hint">Intern trænerinfo — vises ikke på stillingen endnu. Opdateres manuelt.</p>
-      <div id="profile-list" class="profile-list"></div>
+      <div id="profile-summary" class="profile-summary"></div>
+      <div class="profile-toolbar card">
+        <label class="profile-toolbar__item">Position
+          <select id="profile-filter-pos">
+            <option value="">Alle</option>
+            <option value="GK">Målmand</option>
+            <option value="DEF">Forsvar</option>
+            <option value="MID">Midtbane</option>
+            <option value="ATT">Angreb</option>
+          </select>
+        </label>
+        <label class="profile-toolbar__item">Sorter
+          <select id="profile-sort">
+            <option value="name">Navn</option>
+            <option value="training">Trænings%</option>
+            <option value="matches">Kampe</option>
+            <option value="benched">Oversiddet</option>
+            <option value="width">Bredde</option>
+          </select>
+        </label>
+        <label class="profile-toolbar__item profile-toolbar__grow">Søg
+          <input type="search" id="profile-search" placeholder="Spillernavn…">
+        </label>
+      </div>
+      <div class="card">
+        <div class="card__row">
+          <h3 class="card__title">Træninger (man + ons)</h3>
+          <button type="button" id="btn-add-training-week" class="btn btn--sm">+ Uge</button>
+        </div>
+        <div id="training-weeks" class="training-weeks"></div>
+      </div>
+      <div id="profile-table-wrap" class="card"></div>
     </section>
 
     <div id="player-modal" class="modal" hidden>

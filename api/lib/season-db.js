@@ -68,11 +68,16 @@ export function rowsToSeason({ season, players, matches, stats }) {
     statsByMatch[s.match_id][s.player_idx] = statRowToLegacy(s);
   }
 
+  const rawRules = season.rules || DEFAULT_RULES;
+  const squad = rawRules.squad || { weeks: [] };
+  const { squad: _sq, ...rules } = rawRules;
+
   return {
     id: season.id,
     shareId: season.share_id,
     made: season.updated_at,
-    rules: season.rules || DEFAULT_RULES,
+    rules,
+    squad,
     players: (players || [])
       .sort((a, b) => a.idx - b.idx)
       .map((p) => ({
@@ -139,7 +144,7 @@ async function loadSeasonFull(seasonId) {
 /** Legacy JSON → DB (fuld erstatning af sæson-data) */
 export async function saveSeasonData(legacy, seasonId = null) {
   const db = getServiceClient();
-  const rules = legacy.rules || DEFAULT_RULES;
+  const rules = { ...(legacy.rules || DEFAULT_RULES), squad: legacy.squad || { weeks: [] } };
   const now = new Date().toISOString();
 
   let sid = seasonId;
