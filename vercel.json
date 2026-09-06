@@ -1,5 +1,9 @@
 {
   "cleanUrls": false,
+  "redirects": [
+    { "source": "/", "destination": "/standings.html", "permanent": false },
+    { "source": "/admin", "destination": "/admin.html", "permanent": false }
+  ],
   "headers": [
     {
       "source": "/standings.html",
