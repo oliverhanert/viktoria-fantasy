@@ -1,0 +1,65 @@
+{
+  "made": "2026-09-06T17:05:00.000Z",
+  "players": [
+    { "n": "Jens G.", "pos": "DEF" },
+    { "n": "Pepke", "pos": "ATT" },
+    { "n": "Oli", "pos": "MID" },
+    { "n": "Spork", "pos": "MID" },
+    { "n": "Alex", "pos": "ATT" },
+    { "n": "Chris", "pos": "ATT" },
+    { "n": "Fogh", "pos": "MID" },
+    { "n": "Mads O.", "pos": "ATT" },
+    { "n": "Magnus H. H.", "pos": "ATT" },
+    { "n": "Røde", "pos": "ATT" },
+    { "n": "Emil K.", "pos": "GK" },
+    { "n": "Garbers", "pos": "DEF" },
+    { "n": "Koosha R.", "pos": "DEF" },
+    { "n": "Tøffe", "pos": "DEF" }
+  ],
+  "rules": {
+    "bestOf": 6,
+    "win": 8,
+    "margin_per_goal": 1,
+    "draw": 4,
+    "loss": -1,
+    "goal": { "GK": 40, "DEF": 30, "MID": 25, "ATT": 20 },
+    "assist": { "GK": 20, "DEF": 16, "MID": 16, "ATT": 16 },
+    "clean_sheet": { "GK": 25, "DEF": 20, "MID": 10, "ATT": 0 },
+    "conceded_per_goal": { "GK": -2, "DEF": -2, "MID": -1, "ATT": 0 },
+    "yellow": -10,
+    "red": -30,
+    "vote": 2,
+    "motm": 5,
+    "joga": 3
+  },
+  "matches": [
+    {
+      "d": "2026-09-05",
+      "o": "K.B. 3",
+      "gf": 1,
+      "ga": 2,
+      "pom": 2,
+      "lineup": {
+        "formation": "4-3-3",
+        "xi": [10, 0, 11, 12, 13, 2, 3, 6, 1, 4, 9],
+        "bench": [7, 8, 5]
+      },
+      "pl": {
+        "0": { "p": "DEF", "a": 1, "v": 5, "j": 1 },
+        "1": { "p": "ATT", "g": 1, "v": 1, "j": 1 },
+        "2": { "p": "MID", "v": 6, "j": 1 },
+        "3": { "p": "MID", "v": 2 },
+        "4": { "p": "ATT" },
+        "5": { "p": "ATT" },
+        "6": { "p": "MID", "v": 1 },
+        "7": { "p": "ATT" },
+        "8": { "p": "ATT" },
+        "9": { "p": "ATT" },
+        "10": { "p": "GK", "v": 1 },
+        "11": { "p": "DEF" },
+        "12": { "p": "DEF" },
+        "13": { "p": "DEF" }
+      }
+    }
+  ]
+}

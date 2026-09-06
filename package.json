@@ -1,0 +1,15 @@
+{
+  "name": "viktoria-fantasy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.js",
+    "seed": "node scripts/seed-supabase.js",
+    "preview": "open http://localhost:3456/standings.html#demo"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "@vercel/blob": "^0.27.3",
+    "cheerio": "^1.2.0"
+  }
+}

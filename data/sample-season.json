@@ -1,0 +1,60 @@
+{
+  "made": "2026-09-05T14:00:00.000Z",
+  "team": {
+    "name": "Viktoria 2",
+    "league": "Serie 2, P2/3 Efterår, Pulje 2",
+    "dbuTeamId": "21239_496291",
+    "dbuPoolId": "496291"
+  },
+  "rules": {
+    "win": 3,
+    "draw": 1,
+    "loss": 0,
+    "margin_per_goal": 1,
+    "bestOf": 8,
+    "goal": { "GK": 6, "DEF": 6, "MID": 5, "ATT": 4 },
+    "assist": { "GK": 3, "DEF": 3, "MID": 3, "ATT": 3 },
+    "clean_sheet": { "GK": 4, "DEF": 4, "MID": 1, "ATT": 0 },
+    "conceded_per_goal": { "GK": -1, "DEF": -1, "MID": 0, "ATT": 0 },
+    "yellow": -1,
+    "red": -3,
+    "vote": 1,
+    "motm": 5,
+    "joga": 2
+  },
+  "players": [
+    { "n": "Oliver", "pos": "MID", "avatarStyle": "lorelei", "avatarSeed": "oliver-viktoria" },
+    { "n": "Mads", "pos": "ATT", "avatarStyle": "adventurer", "avatarSeed": "mads-viktoria" },
+    { "n": "Jonas", "pos": "GK", "avatarStyle": "avataaars", "avatarSeed": "jonas-viktoria" },
+    { "n": "Emil", "pos": "DEF", "avatarStyle": "personas", "avatarSeed": "emil-viktoria" },
+    { "n": "Frederik", "pos": "DEF", "avatarStyle": "micah", "avatarSeed": "frederik-viktoria" },
+    { "n": "Nikolaj", "pos": "MID", "avatarStyle": "lorelei", "avatarSeed": "nikolaj-viktoria" },
+    { "n": "Sebastian", "pos": "ATT", "avatarStyle": "adventurer", "avatarSeed": "sebastian-viktoria" },
+    { "n": "Christian", "pos": "MID", "avatarStyle": "personas", "avatarSeed": "christian-viktoria" },
+    { "n": "Alexander", "pos": "DEF", "avatarStyle": "micah", "avatarSeed": "alexander-viktoria" },
+    { "n": "Magnus", "pos": "MID", "avatarStyle": "lorelei", "avatarSeed": "magnus-viktoria" },
+    { "n": "Rasmus", "pos": "ATT", "avatarStyle": "adventurer", "avatarSeed": "rasmus-viktoria" },
+    { "n": "Thomas", "pos": "DEF", "avatarStyle": "avataaars", "avatarSeed": "thomas-viktoria" }
+  ],
+  "matches": [
+    {
+      "d": "05. sep 2026",
+      "o": "K.B. 3",
+      "gf": 1,
+      "ga": 2,
+      "pom": 6,
+      "pl": {
+        "0": { "p": "MID", "g": 0, "a": 1, "v": 2, "j": 1 },
+        "1": { "p": "ATT", "g": 1, "a": 0, "v": 3, "j": 0 },
+        "2": { "p": "GK", "g": 0, "a": 0, "v": 1, "j": 0 },
+        "3": { "p": "DEF", "g": 0, "a": 0, "v": 1, "j": 0 },
+        "4": { "p": "DEF", "g": 0, "a": 0, "v": 0, "j": 0 },
+        "5": { "p": "MID", "g": 0, "a": 0, "v": 2, "j": 1 },
+        "6": { "p": "ATT", "g": 0, "a": 0, "v": 1, "j": 0 },
+        "7": { "p": "MID", "g": 0, "a": 0, "v": 0, "j": 0 },
+        "8": { "p": "DEF", "g": 0, "a": 0, "v": 0, "j": 0 },
+        "9": { "p": "MID", "g": 0, "a": 0, "v": 1, "j": 0 }
+      }
+    }
+  ]
+}

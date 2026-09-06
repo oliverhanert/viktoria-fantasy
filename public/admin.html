@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Admin · BK Viktoria Fantasy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/admin.css">
+  <link rel="stylesheet" href="/css/standings.css">
+  <link rel="icon" href="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png">
+</head>
+<body>
+  <div id="api-banner" class="api-banner" hidden></div>
+
+  <div id="login-view" class="login">
+    <div class="login__card">
+      <img src="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png" alt="" class="login__crest">
+      <h1>Fantasy Admin</h1>
+      <p class="login__lead">Log ind for at opdatere spillere og kampstats. Har du ikke adgangskode? Vælg <strong>Opret konto</strong>.</p>
+
+      <div id="signup-tab-wrap" class="auth-tabs">
+        <button type="button" class="auth-tabs__btn is-on" data-auth-tab="login">Log ind</button>
+        <button type="button" class="auth-tabs__btn" data-auth-tab="signup">Opret konto</button>
+      </div>
+
+      <div id="login-panel">
+        <form id="login-form">
+          <div id="login-email-wrap">
+            <label for="login-email">Email</label>
+            <input type="email" id="login-email" autocomplete="email" placeholder="din@email.dk">
+          </div>
+          <label for="login-pw">Adgangskode</label>
+          <input type="password" id="login-pw" autocomplete="current-password" required>
+          <p id="local-pw-hint" class="hint hint--center">Lokal test: adgangskode fra <code>.env</code></p>
+          <button type="submit" class="btn-submit">Log ind</button>
+          <p class="login__err" id="login-err" hidden></p>
+        </form>
+      </div>
+
+      <div id="signup-panel" hidden>
+        <form id="signup-form">
+          <p class="hint hint--box">Email skal stå i <code>coach_invites</code> i Supabase. Her opretter du din adgangskode første gang.</p>
+          <label for="signup-name">Navn</label>
+          <input type="text" id="signup-name" required>
+          <label for="signup-email">Email</label>
+          <input type="email" id="signup-email" autocomplete="email" required>
+          <label for="signup-pw">Adgangskode (min. 8 tegn)</label>
+          <input type="password" id="signup-pw" minlength="8" autocomplete="new-password" required>
+          <button type="submit" class="btn-submit">Opret konto</button>
+          <p class="login__err" id="signup-err" hidden></p>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="app-view" class="app" hidden>
+    <header class="top">
+      <div>
+        <h1>Admin</h1>
+        <p class="coach-label" id="coach-label"></p>
+        <p class="live-url">Live side: <a href="/standings.html" id="live-url" target="_blank" rel="noopener">/standings.html</a></p>
+      </div>
+      <div class="top__actions">
+        <span id="dirty-label" class="dirty-label" hidden>Ikke gemt</span>
+        <a href="/standings.html" target="_blank" rel="noopener" class="btn btn--ghost" id="btn-preview">Se side ↗</a>
+        <button type="button" id="btn-save" class="btn btn--primary">Gem</button>
+        <button type="button" id="btn-logout" class="btn btn--ghost">Log ud</button>
+      </div>
+    </header>
+    <p id="save-status" class="status" hidden></p>
+
+    <nav class="tabs">
+      <button type="button" class="tabs__btn is-on" data-tab="players">Spillere</button>
+      <button type="button" class="tabs__btn" data-tab="match">Kampe</button>
+      <button type="button" class="tabs__btn" data-tab="profile">Holdinfo</button>
+    </nav>
+
+    <section id="tab-players" class="tab is-on">
+      <div class="card">
+        <h3 class="card__title">Avatar-bibliotek</h3>
+        <p class="hint">Upload illustrationer her — de kan vælges til spillere. Klik × for at slette.</p>
+        <div id="avatar-library-grid" class="avatar-picker"></div>
+        <label class="avatar-upload-btn">
+          <input type="file" id="avatar-lib-upload" accept="image/svg+xml,image/png,image/jpeg,image/webp" hidden>
+          + Upload avatar
+        </label>
+      </div>
+
+      <button type="button" id="btn-add-player" class="btn btn--add">+ Spiller</button>
+      <div id="players-list" class="players-list"></div>
+    </section>
+
+    <section id="tab-match" class="tab">
+      <div class="match-layout">
+        <aside class="match-sidebar card">
+          <div class="match-sidebar__actions">
+            <button type="button" id="btn-add-match" class="btn btn--primary btn--sm">+ Kamp</button>
+            <button type="button" id="btn-dbu-import" class="btn btn--ghost btn--sm">Hent fra DBU</button>
+          </div>
+          <div id="match-nav" class="match-nav"></div>
+        </aside>
+        <div id="match-detail" class="match-detail"></div>
+      </div>
+      <div id="slot-picker" class="slot-picker" hidden>
+        <label for="slot-picker-select">Vælg spiller</label>
+        <select id="slot-picker-select"></select>
+        <button type="button" id="slot-picker-clear" class="btn btn--ghost btn--sm">Tom</button>
+      </div>
+    </section>
+
+    <section id="tab-profile" class="tab">
+      <p class="hint">Intern trænerinfo — vises ikke på stillingen endnu. Opdateres manuelt.</p>
+      <div id="profile-list" class="profile-list"></div>
+    </section>
+
+    <div id="player-modal" class="modal" hidden>
+      <div class="modal__backdrop" data-close-modal></div>
+      <div class="modal__card" role="dialog" aria-labelledby="player-modal-title">
+        <h2 id="player-modal-title">Ny spiller</h2>
+        <label for="modal-name">Navn</label>
+        <input type="text" id="modal-name" placeholder="Spillernavn">
+        <label for="modal-pos">Position</label>
+        <select id="modal-pos">
+          <option value="GK">Målmand</option>
+          <option value="DEF">Forsvar</option>
+          <option value="MID" selected>Midtbane</option>
+          <option value="ATT">Angreb</option>
+        </select>
+        <p class="hint">Vælg avatar fra bibliotek eller upload egen illustration:</p>
+        <div id="modal-avatar-picker" class="avatar-picker avatar-picker--modal"></div>
+        <label class="avatar-upload-btn avatar-upload-btn--inline">
+          <input type="file" id="modal-avatar-upload" accept="image/svg+xml,image/png,image/jpeg,image/webp" hidden>
+          Upload egen avatar
+        </label>
+        <div class="modal__actions">
+          <button type="button" class="btn btn--ghost" data-close-modal>Annuller</button>
+          <button type="button" id="modal-save" class="btn btn--primary">Gem spiller</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+  </div>
+
+  <script type="module" src="/js/admin-app.js"></script>
+</body>
+</html>
