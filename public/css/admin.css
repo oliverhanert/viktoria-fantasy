@@ -149,6 +149,10 @@ textarea {
   background-position: right 10px center;
 }
 
+@media (max-width: 899px) {
+  .slot-picker select { font-size: 16px; min-height: 44px; }
+}
+
 input[type="checkbox"],
 input[type="radio"] {
   width: auto;
@@ -182,6 +186,13 @@ select:not(.season-picker__select) {
   box-sizing: border-box;
   -webkit-appearance: none;
   appearance: none;
+}
+
+@media (max-width: 899px) {
+  .match-meta input,
+  .match-meta select {
+    font-size: 16px;
+  }
 }
 
 .match-meta input[type="date"] {
@@ -497,7 +508,7 @@ button.btn, a.btn {
     padding: 12px 8px !important;
   }
   .pitch--admin { max-width: 100%; margin: 0 auto; }
-  .stats-table-wrap { display: none; }
+  .match-editor .stats-table-wrap { display: none; }
   .stats-cards { display: flex; flex-direction: column; gap: 8px; }
 }
 
@@ -1164,6 +1175,14 @@ button.btn, a.btn {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+@media (max-width: 899px) {
+  .season-picker__select {
+    font-size: 16px;
+    height: 36px;
+    max-width: min(152px, 42vw);
+  }
 }
 
 @media (max-width: 899px) {

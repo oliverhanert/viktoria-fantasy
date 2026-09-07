@@ -180,15 +180,28 @@ async function getHeaders() {
     : { 'Content-Type': 'application/json' };
 }
 
+function resetMobileViewport() {
+  const active = document.activeElement;
+  if (active && typeof active.blur === 'function') active.blur();
+  window.scrollTo(0, 0);
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (!meta || !window.matchMedia('(max-width: 899px)').matches) return;
+  const base = 'width=device-width,initial-scale=1,viewport-fit=cover';
+  meta.setAttribute('content', `${base},maximum-scale=1`);
+  requestAnimationFrame(() => meta.setAttribute('content', base));
+}
+
 function showApp() {
   $('auth-loading').hidden = true;
   $('login-view').hidden = true;
   $('app-view').hidden = false;
+  resetMobileViewport();
 }
 function showLogin() {
   $('auth-loading').hidden = true;
   $('login-view').hidden = false;
   $('app-view').hidden = true;
+  resetMobileViewport();
 }
 function showAuthLoading() {
   $('auth-loading').hidden = false;
