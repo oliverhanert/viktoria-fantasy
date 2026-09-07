@@ -11,8 +11,8 @@ export const SLOT_POS = {
     { slot: 'DEF', x: 63, y: 77, label: 'CB' }, { slot: 'DEF', x: 84, y: 74, label: 'HB' },
     { slot: 'MID', x: 28, y: 48, label: 'CM' }, { slot: 'MID', x: 50, y: 44, label: 'CM' },
     { slot: 'MID', x: 72, y: 48, label: 'CM' },
-    { slot: 'ATT', x: 22, y: 18, label: 'LW' }, { slot: 'ATT', x: 50, y: 14, label: 'ST' },
-    { slot: 'ATT', x: 78, y: 18, label: 'RW' },
+    { slot: 'ATT', x: 22, y: 18, label: 'VW' }, { slot: 'ATT', x: 50, y: 14, label: 'ST' },
+    { slot: 'ATT', x: 78, y: 18, label: 'HW' },
   ],
 };
 
@@ -55,7 +55,7 @@ export function renderPitch(placed, bench, opts = {}) {
   const tokens = placed
     .map(
       (p) => `<button type="button" class="pitch-token" data-p="${p.i}" style="left:${p.x}%;top:${p.y}%">
-        ${playerAvatarHtml(p.player, p.i, 44, '', 'pitch')}
+        ${playerAvatarHtml(p.player, p.i, 40, '', 'pitch')}
         <span class="pitch-token__name">${esc((p.name || '').split(' ')[0])}</span>
         ${p.pts != null ? `<span class="pitch-token__pts${p.pts < 0 ? ' neg' : ''}">${p.pts > 0 ? '+' : ''}${p.pts}</span>` : ''}
       </button>`
@@ -69,7 +69,7 @@ export function renderPitch(placed, bench, opts = {}) {
           .map(
             (p) =>
               `<button type="button" class="pitch-bench__p" data-p="${p.i}">
-                ${playerAvatarHtml(p.player, p.i, 34, '', 'pitch')}
+                ${playerAvatarHtml(p.player, p.i, 32, '', 'pitch')}
                 <span>${esc((p.name || '').split(' ')[0])}</span>
                 ${p.pts != null ? `<em class="${p.pts < 0 ? 'neg' : ''}">${p.pts > 0 ? '+' : ''}${p.pts}</em>` : ''}
               </button>`
@@ -85,7 +85,6 @@ export function renderPitch(placed, bench, opts = {}) {
       ${score ? `<span class="pitch-head__score">${score}</span>` : ''}
     </div>
     <div class="pitch" role="img" aria-label="Fodboldbane">
-      <div class="pitch__grass"></div>
       <div class="pitch__stripe pitch__stripe--1"></div>
       <div class="pitch__stripe pitch__stripe--2"></div>
       <div class="pitch__stripe pitch__stripe--3"></div>
@@ -102,7 +101,7 @@ export function renderPitch(placed, bench, opts = {}) {
   </div>`;
 }
 
-/** Interaktiv bane til admin — klik på plads for at vælge spiller */
+/** Interaktiv bane til admin */
 export function renderAdminPitch(match, players, esc) {
   const formation = match.lineup?.formation || '4-3-3';
   const slots = SLOT_POS[formation] || SLOT_POS['4-3-3'];
@@ -130,7 +129,6 @@ export function renderAdminPitch(match, players, esc) {
 
   return `<div class="admin-pitch-wrap">
     <div class="pitch pitch--admin" role="img" aria-label="Opstilling 4-3-3">
-      <div class="pitch__grass"></div>
       <div class="pitch__stripe pitch__stripe--1"></div>
       <div class="pitch__stripe pitch__stripe--2"></div>
       <div class="pitch__stripe pitch__stripe--3"></div>

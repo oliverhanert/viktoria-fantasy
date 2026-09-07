@@ -17,15 +17,15 @@ export const ROLE_GROUPS = [
     label: 'Midtbane',
     roles: [
       { id: 'CDM', label: "6'er (CDM)", short: '6' },
-      { id: 'CM', label: "8'er / 10'er", short: '8/10' },
+      { id: 'CM', label: 'Central midtbane', short: 'CM' },
     ],
   },
   {
     id: 'ATT',
     label: 'Angreb',
     roles: [
-      { id: 'LW', label: 'Venstrekant', short: 'VK' },
-      { id: 'RW', label: 'Højrekant', short: 'HK' },
+      { id: 'LW', label: 'Venstrekant', short: 'VW' },
+      { id: 'RW', label: 'Højrekant', short: 'HW' },
       { id: 'ST', label: 'Angriber', short: 'ST' },
     ],
   },
@@ -45,8 +45,8 @@ const LEGACY_MAP = {
   VB: 'LB', VENSTREBACK: 'LB', LB: 'LB', LEFT: 'LB',
   CDM: 'CDM', '6': 'CDM', "6'ER": 'CDM', DM: 'CDM',
   CM: 'CM', '8': 'CM', '10': 'CM', "8'ER": 'CM', "10'ER": 'CM',
-  LW: 'LW', VK: 'LW', VENSTREKANT: 'LW',
-  RW: 'RW', HK: 'RW', HØJREKANT: 'RW',
+  LW: 'LW', VK: 'LW', VW: 'LW', VENSTREKANT: 'LW',
+  RW: 'RW', HK: 'RW', HW: 'RW', HØJREKANT: 'RW',
   ST: 'ST', ANGRIBER: 'ST', CF: 'ST',
 };
 
@@ -100,16 +100,42 @@ export function ensureCoveredRoles(player) {
   return player.profile.coveredRoles;
 }
 
-export function roleLabelsShort(ids) {
-  return normalizeCoveredRoles(ids)
-    .map((id) => ROLE_BY_ID[id]?.short || id)
-    .join(' · ');
+export function roleLabelsShort(ids, { primaryOnly = false } = {}) {
+  const norm = normalizeCoveredRoles(ids);
+  const list = primaryOnly ? norm.slice(0, 1) : norm;
+  return list.map((id) => ROLE_BY_ID[id]?.short || id).join(' · ');
 }
 
 export function roleLabelsLong(ids) {
   return normalizeCoveredRoles(ids)
     .map((id) => ROLE_BY_ID[id]?.label || id)
     .join(', ');
+}
+
+function priorityItemHtml(id, idx, total) {
+  const role = ROLE_BY_ID[id];
+  if (!role) return '';
+  const up = idx > 0
+    ? '<button type="button" class="role-priority__btn" data-act="up" aria-label="Højere prioritet">↑</button>'
+    : '';
+  const down = idx < total - 1
+    ? '<button type="button" class="role-priority__btn" data-act="down" aria-label="Lavere prioritet">↓</button>'
+    : '';
+  return `<li class="role-priority__item" data-role="${id}">
+    <span class="role-priority__rank">${idx + 1}</span>
+    <span class="role-priority__name">${role.label}</span>
+    <span class="role-priority__short">${role.short}</span>
+    <span class="role-priority__acts">${up}${down}</span>
+  </li>`;
+}
+
+function renderPriorityList(order) {
+  if (!order.length) {
+    return '<p class="role-priority__empty hint">Vælg positioner — øverst = naturlig/bedst</p>';
+  }
+  return `<ol class="role-priority__list">${order
+    .map((id, i) => priorityItemHtml(id, i, order.length))
+    .join('')}</ol>`;
 }
 
 export function renderRolePickerHtml(selected = [], primaryPos = 'MID') {
@@ -122,7 +148,7 @@ export function renderRolePickerHtml(selected = [], primaryPos = 'MID') {
     </div>`;
   }
 
-  return `<div class="role-picker">${ROLE_GROUPS.map((g) => {
+  const groups = ROLE_GROUPS.map((g) => {
     const rows = g.roles.map((r) => {
       const on = selected.includes(r.id);
       const highlight = g.id === primaryPos ? ' role-check--primary' : '';
@@ -136,10 +162,93 @@ export function renderRolePickerHtml(selected = [], primaryPos = 'MID') {
       <div class="role-picker__heading">${g.label}</div>
       <div class="role-picker__opts">${rows}</div>
     </div>`;
-  }).join('')}</div>`;
+  }).join('');
+
+  const order = normalizeCoveredRoles(selected);
+
+  return `<div class="role-picker" data-role-order='${JSON.stringify(order)}'>
+    ${groups}
+    <div class="role-priority">
+      <div class="role-priority__heading">Prioritet <span class="hint">(øverst = naturlig position)</span></div>
+      ${renderPriorityList(order)}
+    </div>
+  </div>`;
+}
+
+function readOrderFromDom(container) {
+  const raw = container?.dataset?.roleOrder;
+  if (raw) {
+    try {
+      return normalizeCoveredRoles(JSON.parse(raw));
+    } catch { /* fall through */ }
+  }
+  const list = container?.querySelector('.role-priority__list');
+  if (list) {
+    return [...list.querySelectorAll('[data-role]')].map((el) => el.dataset.role);
+  }
+  return [];
+}
+
+function writeOrderToDom(container, order) {
+  if (container) container.dataset.roleOrder = JSON.stringify(order);
+  const wrap = container?.querySelector('.role-priority');
+  if (!wrap) return;
+  wrap.innerHTML = `<div class="role-priority__heading">Prioritet <span class="hint">(øverst = naturlig position)</span></div>${renderPriorityList(order)}`;
+}
+
+export function bindRolePicker(container) {
+  if (!container) return;
+
+  let order = readOrderFromDom(container);
+
+  function syncFromCheckboxes() {
+    const checked = [...container.querySelectorAll('input[type="checkbox"]:checked')].map((el) => el.value);
+    order = order.filter((id) => checked.includes(id));
+    for (const id of checked) {
+      if (!order.includes(id)) order.push(id);
+    }
+    writeOrderToDom(container, order);
+    bindPriorityButtons();
+  }
+
+  function bindPriorityButtons() {
+    container.querySelectorAll('.role-priority__btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const li = btn.closest('[data-role]');
+        const id = li?.dataset.role;
+        const act = btn.dataset.act;
+        const idx = order.indexOf(id);
+        if (idx < 0) return;
+        if (act === 'up' && idx > 0) {
+          order.splice(idx, 1);
+          order.splice(idx - 1, 0, id);
+        } else if (act === 'down' && idx < order.length - 1) {
+          order.splice(idx, 1);
+          order.splice(idx + 1, 0, id);
+        }
+        writeOrderToDom(container, order);
+        bindPriorityButtons();
+      });
+    });
+  }
+
+  container.querySelectorAll('.role-check input').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      cb.closest('.role-check')?.classList.toggle('is-on', cb.checked);
+      syncFromCheckboxes();
+    });
+  });
+
+  bindPriorityButtons();
 }
 
 export function readRolePicker(container) {
   if (!container) return [];
-  return [...container.querySelectorAll('input[type="checkbox"]:checked')].map((el) => el.value);
+  const order = readOrderFromDom(container);
+  const checked = [...container.querySelectorAll('input[type="checkbox"]:checked')].map((el) => el.value);
+  if (container.querySelector('.role-priority')) {
+    return order.filter((id) => checked.includes(id));
+  }
+  return checked;
 }

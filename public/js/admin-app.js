@@ -14,17 +14,28 @@ import {
   isTrainingDay,
   MONTHS_DA,
   DAYS_DA,
-  seasonCalendarBounds,
-  defaultCalendarMonth,
+  periodCalendarBounds,
+  defaultCalendarMonthForPeriod,
   normalizeAttendance,
   toggleAttendance,
+  periodIdForDate,
+  periodLabel,
+  seasonNavButtonLabel,
+  listPeriodIds,
+  isDateInPeriod,
+  matchDateIso,
+  comparePeriodIds,
+  sessionsForPeriod,
+  filterMatchesByPeriod,
 } from './admin-squad.js';
 import {
   ensureCoveredRoles,
   roleLabelsShort,
   renderRolePickerHtml,
   readRolePicker,
+  bindRolePicker,
 } from './player-roles.js';
+import { buildLogoMap, logoForOpponent } from './team-logos.js';
 
 const TOKEN_KEY = 'vf_admin_token';
 const LIVE_URL = '/standings.html';
@@ -46,9 +57,13 @@ const DEFAULT_PROFILE = {
   notes: '',
 };
 
-let profileFilterPos = '';
-let profileSort = 'name';
-let profileSearch = '';
+const PERIOD_STORAGE_KEY = 'vf-admin-period';
+
+const POS_ORDER = { GK: 0, DEF: 1, MID: 2, ATT: 3 };
+
+let profileSort = 'pos';
+let playerHighlightTimer = null;
+let selectedPeriod = periodIdForDate();
 let authBooted = false;
 
 let calYear = new Date().getFullYear();
@@ -69,6 +84,7 @@ let modalSelectedAvatar = '';
 let modalPendingFile = null;
 let modalPreviewUrl = '';
 const pendingUploads = new Map();
+let dbuLogoMap = {};
 
 const $ = (id) => document.getElementById(id);
 
@@ -82,12 +98,12 @@ function playerKey(p, i) {
 
 function markDirty() {
   isDirty = true;
-  $('dirty-label').hidden = false;
+  $('btn-save')?.classList.add('is-dirty');
 }
 
 function markClean() {
   isDirty = false;
-  $('dirty-label').hidden = true;
+  $('btn-save')?.classList.remove('is-dirty');
 }
 
 function showToast(msg) {
@@ -110,18 +126,29 @@ function setSaveStatus(msg, type = '') {
 }
 
 const PAGE_TABS = { players: 'tab-players', match: 'tab-match', profile: 'tab-profile' };
+const ADMIN_TITLES = { match: 'Kampe', players: 'Spillere', profile: 'Holdinfo' };
 
 function gotoTab(tab) {
-  document.querySelectorAll('.tabs__btn').forEach((el) => {
-    el.classList.toggle('is-on', el.dataset.tab === tab);
+  if (!PAGE_TABS[tab]) return;
+  document.querySelectorAll('[data-tab]').forEach((el) => {
+    const on = el.dataset.tab === tab;
+    el.classList.toggle('is-on', on);
+    if (el.getAttribute('role') === 'tab') el.setAttribute('aria-selected', on ? 'true' : 'false');
   });
-  document.querySelectorAll('.tab').forEach((el) => el.classList.remove('is-on'));
+  document.querySelectorAll('.view').forEach((el) => el.classList.remove('is-on'));
   $(PAGE_TABS[tab])?.classList.add('is-on');
+  const title = $('page-title');
+  if (title) title.textContent = ADMIN_TITLES[tab] || '';
 }
 
-document.querySelectorAll('.tabs__btn').forEach((el) => {
-  el.addEventListener('click', () => gotoTab(el.dataset.tab));
-});
+function setupAdminNav() {
+  if (document.body.dataset.adminNavBound) return;
+  document.body.dataset.adminNavBound = '1';
+  document.querySelectorAll('[data-tab]').forEach((el) => {
+    el.addEventListener('click', () => gotoTab(el.dataset.tab));
+  });
+}
+setupAdminNav();
 
 async function ensureCoach(accessToken) {
   const r = await fetch('/api/ensure-coach', {
@@ -389,6 +416,15 @@ $('btn-logout').addEventListener('click', async () => {
   showLogin();
 });
 
+function sortedPlayerIndices(players = state?.players || []) {
+  return players.map((_, i) => i).sort((a, b) => {
+    const pa = players[a];
+    const pb = players[b];
+    const d = (POS_ORDER[pa.pos] ?? 9) - (POS_ORDER[pb.pos] ?? 9);
+    return d || pa.n.localeCompare(pb.n, 'da');
+  });
+}
+
 // ——— Spillere ———
 
 function previewHtml(p, i, size = 48) {
@@ -408,11 +444,7 @@ function renderModalRolePicker(pos, selected = []) {
   const el = $('modal-roles');
   if (!el) return;
   el.innerHTML = renderRolePickerHtml(selected, pos);
-  el.querySelectorAll('.role-check input').forEach((cb) => {
-    cb.addEventListener('change', () => {
-      cb.closest('.role-check')?.classList.toggle('is-on', cb.checked);
-    });
-  });
+  bindRolePicker(el);
 }
 
 function openPlayerModal(editIndex = null) {
@@ -486,7 +518,11 @@ $('modal-save')?.addEventListener('click', async () => {
 
   const coveredRoles = readRolePicker($('modal-roles'));
 
-  if (modalEditIndex !== null) {
+  let savedIndex;
+  const isEdit = modalEditIndex !== null;
+
+  if (isEdit) {
+    savedIndex = modalEditIndex;
     const p = state.players[modalEditIndex];
     p.n = name;
     p.pos = pos;
@@ -502,13 +538,17 @@ $('modal-save')?.addEventListener('click', async () => {
       profile: { benchedAvailable: 0, coveredRoles: pos === 'GK' ? ['GK'] : coveredRoles, notes: '' },
       _localId: crypto.randomUUID(),
     });
+    savedIndex = state.players.length - 1;
   }
 
   markDirty();
   closePlayerModal();
-  renderPlayers();
+  showToast(isEdit ? `${name} er opdateret` : `${name} er tilføjet`);
+  if (!isEdit) gotoTab('players');
+  renderPlayers(savedIndex);
   renderMatchUI();
   renderAvatarLibraryGrid($('avatar-library-grid'));
+  renderProfileList();
 });
 
 async function uploadPendingPhotos() {
@@ -527,10 +567,16 @@ async function uploadPendingPhotos() {
   pendingUploads.clear();
 }
 
-function renderPlayers() {
-  $('players-list').innerHTML = state.players.length
-    ? state.players.map((p, i) => `
-      <div class="player-row" data-i="${i}">
+function renderPlayers(highlightIndex = null) {
+  const list = $('players-list');
+  if (!list) return;
+  const indices = sortedPlayerIndices();
+
+  list.innerHTML = indices.length
+    ? indices.map((i) => {
+      const p = state.players[i];
+      const hl = i === highlightIndex ? ' player-row--highlight' : '';
+      return `<div class="player-row${hl}" data-i="${i}">
         ${previewHtml(p, i, 44)}
         <div class="player-row__info">
           <span class="player-row__name">${esc(p.n)}</span>
@@ -538,14 +584,15 @@ function renderPlayers() {
         </div>
         <button type="button" class="btn" data-edit="${i}">Rediger</button>
         <button type="button" class="btn-del" data-del="${i}" title="Fjern spiller">×</button>
-      </div>`).join('')
+      </div>`;
+    }).join('')
     : '<p class="hint" style="padding:16px">Ingen spillere endnu. Klik + Spiller.</p>';
 
-  $('players-list').querySelectorAll('[data-edit]').forEach((btn) => {
+  list.querySelectorAll('[data-edit]').forEach((btn) => {
     btn.addEventListener('click', () => openPlayerModal(+btn.dataset.edit));
   });
 
-  $('players-list').querySelectorAll('[data-del]').forEach((btn) => {
+  list.querySelectorAll('[data-del]').forEach((btn) => {
     btn.addEventListener('click', () => {
       if (!confirm('Fjern spilleren?')) return;
       state.players.splice(+btn.dataset.del, 1);
@@ -555,6 +602,16 @@ function renderPlayers() {
       renderProfileList();
     });
   });
+
+  if (highlightIndex != null) {
+    clearTimeout(playerHighlightTimer);
+    requestAnimationFrame(() => {
+      list.querySelector(`[data-i="${highlightIndex}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    playerHighlightTimer = setTimeout(() => {
+      list.querySelector('.player-row--highlight')?.classList.remove('player-row--highlight');
+    }, 2400);
+  }
 }
 
 $('btn-add-player').addEventListener('click', () => openPlayerModal(null));
@@ -610,12 +667,85 @@ function closeSlotPicker() {
   if (el) el.hidden = true;
 }
 
-function playerRoleCount(pi) {
-  return ensureCoveredRoles(state.players[pi]).length;
+function isHistoryView() {
+  return selectedPeriod !== periodIdForDate();
 }
 
-function playerMatchesPlayed(pi) {
-  return (state.matches || []).filter((m) => m.pl?.[pi] != null).length;
+function applyViewMode() {
+  const hist = isHistoryView();
+  const banner = $('history-banner');
+  if (banner) banner.hidden = !hist;
+  const gotoBtn = $('period-goto-current');
+  if (gotoBtn) gotoBtn.hidden = !hist;
+  $('btn-save')?.toggleAttribute('disabled', hist);
+  $('btn-add-player')?.toggleAttribute('disabled', hist);
+  $('btn-add-match')?.toggleAttribute('disabled', hist);
+  $('btn-dbu-import')?.toggleAttribute('disabled', hist);
+  $('dbu-sync-bar')?.classList.toggle('is-disabled', hist);
+}
+
+function periodMatchIndices() {
+  const cur = periodIdForDate();
+  return (state.matches || [])
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => {
+      const iso = matchDateIso(m.d);
+      if (!iso) return selectedPeriod === cur;
+      return isDateInPeriod(iso, selectedPeriod);
+    })
+    .map(({ i }) => i);
+}
+
+function updateAdminSeasonNav(periods) {
+  const sel = $('period-select');
+  const bar = $('period-bar');
+  if (sel) sel.value = selectedPeriod;
+  if (bar) bar.hidden = periods.length <= 1;
+}
+
+function renderPeriodNav() {
+  const sel = $('period-select');
+  if (!sel) return;
+  const squad = ensureSquad();
+  const current = periodIdForDate();
+  const periods = listPeriodIds(squad, state.matches, current);
+  if (!periods.includes(selectedPeriod)) selectedPeriod = current;
+  sel.innerHTML = periods.map((id) =>
+    `<option value="${id}" title="${periodLabel(id)}"${id === selectedPeriod ? ' selected' : ''}>${seasonNavButtonLabel(id)}</option>`
+  ).join('');
+  updateAdminSeasonNav(periods);
+  applyViewMode();
+}
+
+function onPeriodChange(periodId) {
+  selectedPeriod = periodId;
+  localStorage.setItem(PERIOD_STORAGE_KEY, periodId);
+  calBounds = periodCalendarBounds(periodId);
+  const def = defaultCalendarMonthForPeriod(periodId);
+  calYear = def.year;
+  calMonth = def.month;
+  const today = new Date();
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  selectedTrainingDate = isTrainingDay(ensureSquad(), todayIso, periodId) ? todayIso : null;
+  const pmi = periodMatchIndices();
+  if (pmi.length) {
+    if (!pmi.includes(matchIdx)) matchIdx = pmi[pmi.length - 1];
+  }
+  renderPeriodNav();
+  renderPlayers();
+  renderMatchUI();
+  renderProfileList();
+}
+
+function playerMatchesPlayed(pi, periodId = null) {
+  const pid = periodId || selectedPeriod;
+  const cur = periodIdForDate();
+  return (state.matches || []).filter((m) => {
+    if (m.pl?.[pi] == null) return false;
+    const iso = matchDateIso(m.d);
+    if (!iso) return pid === cur;
+    return isDateInPeriod(iso, pid);
+  }).length;
 }
 
 function deleteMatch(idx) {
@@ -667,11 +797,29 @@ function syncKsFromVotes(m) {
 
 function renderMatchNav() {
   ensureMatch();
-  $('match-nav').innerHTML = state.matches.map((m, i) => {
+  const indices = periodMatchIndices();
+  if (!indices.length) {
+    $('match-nav').innerHTML = '<p class="hint" style="padding:12px">Ingen kampe i denne halvsæson.</p>';
+    return;
+  }
+  if (!indices.includes(matchIdx)) matchIdx = indices[indices.length - 1];
+
+  $('match-nav').innerHTML = indices.map((i) => {
+    const m = state.matches[i];
     const score = (m.gf != null && m.o) ? `<span class="match-nav__item__score">${m.gf}–${m.ga}</span>` : '';
+    const logo = logoForOpponent(dbuLogoMap, m.o);
+    const logoHtml = logo ? `<img src="${esc(logo)}" class="match-nav__logo" alt="" loading="lazy">` : '<span class="match-nav__logo-ph"></span>';
+    const ha = m.isHome === false
+      ? '<span class="match-nav__away" title="Udebane">↗</span>'
+      : m.isHome === true
+        ? '<span class="match-nav__home" title="Hjemme">H</span>'
+        : '';
     return `<button type="button" class="match-nav__item${i === matchIdx ? ' is-on' : ''}" data-i="${i}">
-      <div>${esc(formatDateLabel(m.d))}</div>
-      <div>vs ${esc(m.o || 'TBD')} ${score}</div>
+      ${logoHtml}
+      <div class="match-nav__item__body">
+        <div class="match-nav__item__date">${esc(formatDateLabel(m.d))}</div>
+        <div class="match-nav__item__opp">${ha} ${esc(m.o || 'TBD')} ${score}</div>
+      </div>
     </button>`;
   }).join('');
 
@@ -728,34 +876,54 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeSlotPicker();
 });
 
-function renderStatsTable(m) {
-  const rows = state.players.map((p, i) => {
-    const st = m.pl?.[i] || {};
-    const played = m.pl?.[i] != null;
-    const ks = isPom(m, i);
-    return `<tr class="${played ? 'is-played' : ''}" data-i="${i}">
+function statRowHtml(p, i, m) {
+  const st = m.pl?.[i] || {};
+  const played = m.pl?.[i] != null;
+  const ks = isPom(m, i);
+  const dis = played ? '' : ' disabled';
+  return {
+    table: `<tr class="${played ? 'is-played' : ''}" data-i="${i}">
       <td>${esc(p.n)}</td>
       <td><input type="checkbox" data-f="on" ${played ? 'checked' : ''}></td>
-      <td class="stat-num"><input type="number" min="0" data-f="g" value="${st.g || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" data-f="a" value="${st.a || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" data-f="v" value="${st.v || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" data-f="j" value="${st.j || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" data-f="y" value="${st.y || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" data-f="r" value="${st.r || 0}"></td>
-      <td class="ks-cell"><input type="checkbox" data-f="mom" ${ks ? 'checked' : ''} ${played ? '' : 'disabled'}></td>
-    </tr>`;
-  }).join('');
+      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="g" value="${st.g || 0}"></td>
+      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="a" value="${st.a || 0}"></td>
+      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="v" value="${st.v || 0}"></td>
+      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="j" value="${st.j || 0}"></td>
+      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="y" value="${st.y || 0}"></td>
+      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="r" value="${st.r || 0}"></td>
+      <td class="ks-cell"><input type="checkbox" data-f="mom" ${ks ? 'checked' : ''}${dis}></td>
+    </tr>`,
+    card: `<div class="stat-mob-card${played ? ' is-played' : ''}" data-i="${i}">
+      <label class="stat-mob-card__toggle"><input type="checkbox" data-f="on" ${played ? 'checked' : ''}><span>${esc(p.n)}</span></label>
+      <div class="stat-mob-card__grid">
+        <label><span>Mål</span><input type="number" min="0" inputmode="numeric" data-f="g" value="${st.g || 0}"></label>
+        <label><span>Ast</span><input type="number" min="0" inputmode="numeric" data-f="a" value="${st.a || 0}"></label>
+        <label><span>Stem</span><input type="number" min="0" inputmode="numeric" data-f="v" value="${st.v || 0}"></label>
+        <label><span>Joga</span><input type="number" min="0" inputmode="numeric" data-f="j" value="${st.j || 0}"></label>
+        <label><span>Gult</span><input type="number" min="0" inputmode="numeric" data-f="y" value="${st.y || 0}"></label>
+        <label><span>Rødt</span><input type="number" min="0" inputmode="numeric" data-f="r" value="${st.r || 0}"></label>
+      </div>
+      <label class="stat-mob-card__mom"><input type="checkbox" data-f="mom" ${ks ? 'checked' : ''}${dis}> Kampens spiller</label>
+    </div>`,
+  };
+}
 
-  return `<div class="stats-table-wrap"><table class="stats-table">
+function renderStatsTable(m) {
+  const parts = state.players.map((p, i) => statRowHtml(p, i, m));
+  const rows = parts.map((p) => p.table).join('');
+  const cards = parts.map((p) => p.card).join('');
+
+  return `<div class="stats-cards">${cards}</div>
+    <div class="stats-table-wrap"><table class="stats-table">
     <thead><tr>
-      <th>Spiller</th><th>✓</th><th>Mål</th><th>Ast</th><th>Stem</th><th>Joga</th><th>G</th><th>R</th><th>KS</th>
+      <th>Spiller</th><th>✓</th><th>Mål</th><th>Ast</th><th>Stem</th><th>Joga</th><th>G</th><th>R</th><th title="Kampens spiller">MOTM</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
 
-function bindStatsTable(m) {
-  $('match-detail').querySelectorAll('.stats-table tbody tr').forEach((row) => {
+function bindStatInputs(root, m) {
+  root.querySelectorAll('[data-i]').forEach((row) => {
     const i = +row.dataset.i;
     const p = state.players[i];
     row.querySelectorAll('input').forEach((inp) => {
@@ -790,101 +958,135 @@ function bindStatsTable(m) {
   });
 }
 
+function bindStatsTable(m) {
+  const root = $('match-detail');
+  if (!root) return;
+  const cards = root.querySelector('.stats-cards');
+  const table = root.querySelector('.stats-table-wrap');
+  if (cards) bindStatInputs(cards, m);
+  if (table) bindStatInputs(table, m);
+}
+
 function renderMatchDetail() {
   closeSlotPicker();
+  const el = $('match-detail');
+  const indices = periodMatchIndices();
+  if (!indices.length) {
+    el.innerHTML = `<div class="card match-empty-state">
+      <h3 class="card__title">Ingen kampe</h3>
+      <p>Der er ingen kampe i <strong>${esc(periodLabel(selectedPeriod))}</strong>.</p>
+      ${isHistoryView()
+        ? '<p class="hint">Vælg en anden halvsæson i toppen, eller klik «Gå til aktuel».</p>'
+        : '<p class="hint">Tryk <strong>+ Kamp</strong> ovenfor, eller importer fra DBU.</p>'}
+    </div>`;
+    return;
+  }
+  if (!indices.includes(matchIdx)) matchIdx = indices[indices.length - 1];
+
   ensureMatch();
   const m = state.matches[matchIdx];
   ensureLineup(m);
+  const hist = isHistoryView();
+  const dis = hist ? ' disabled' : '';
   const isoDate = /^\d{4}-\d{2}-\d{2}$/.test(m.d || '') ? m.d : daDateToIso(m.d) || '';
 
   const copyOpts = state.matches.map((om, i) =>
-    i !== matchIdx ? `<option value="${i}">${esc(formatDateLabel(om.d))} · ${esc(om.o || '?')}</option>` : ''
+    i !== matchIdx && om.lineup?.xi?.length ? `<option value="${i}">${esc(formatDateLabel(om.d))} · ${esc(om.o || '?')}</option>` : ''
   ).join('');
 
-  $('match-detail').innerHTML = `
+  el.innerHTML = `
     <div class="match-detail-head">
       <h3 class="card__title">${esc(formatDateLabel(m.d))} · vs ${esc(m.o || 'TBD')}</h3>
-      <button type="button" id="btn-delete-match" class="btn btn--danger btn--sm">Slet kamp</button>
+      ${hist ? '' : '<button type="button" id="btn-delete-match" class="btn btn--danger btn--sm">Slet kamp</button>'}
     </div>
     <div class="card">
       <h3 class="card__title">Kampinfo</h3>
       <div class="match-meta">
-        <div><label for="m-date">Dato</label><input id="m-date" type="date" value="${esc(isoDate)}"></div>
-        <div><label for="m-opp">Modstander</label><input id="m-opp" type="text" value="${esc(m.o || '')}" placeholder="K.B. 3"></div>
+        <div><label for="m-date">Dato</label><input id="m-date" type="date" value="${esc(isoDate)}"${dis}></div>
+        <div><label for="m-opp">Modstander</label><input id="m-opp" type="text" value="${esc(m.o || '')}" placeholder="K.B. 3"${dis}></div>
         <div class="match-score">
           <label>Resultat</label>
           <div class="score-in score-in--lg">
-            <input id="m-gf" type="number" min="0" value="${m.gf ?? 0}">
+            <input id="m-gf" type="number" min="0" value="${m.gf ?? 0}"${dis}>
             <span>–</span>
-            <input id="m-ga" type="number" min="0" value="${m.ga ?? 0}">
+            <input id="m-ga" type="number" min="0" value="${m.ga ?? 0}"${dis}>
           </div>
         </div>
       </div>
-      <button type="button" id="btn-dbu-match" class="btn btn--ghost btn--sm" style="margin-top:8px">Hent resultat fra DBU</button>
+      ${hist ? '' : '<button type="button" id="btn-dbu-match" class="btn btn--dbu btn--sm" style="margin-top:8px">Opdater resultat fra DBU</button>'}
     </div>
     <div class="card">
       <h3 class="card__title">Opstilling 4-3-3</h3>
-      <p class="hint">Klik på en plads på banen for at vælge spiller. Vil du genbruge en opstilling? Vælg en tidligere kamp og kopiér.</p>
-      <div class="lineup-tools">
+      <p class="hint">Klik på en plads på banen for at vælge spiller.${hist ? ' (Skrivebeskyttet)' : ' Vil du genbruge en opstilling? Vælg en tidligere kamp og kopiér.'}</p>
+      ${hist ? '' : `<div class="lineup-tools">
         <select id="lineup-copy-from" class="lineup-tools__select">
           <option value="">Kopiér opstilling fra kamp…</option>${copyOpts}
         </select>
         <button type="button" id="btn-copy-lineup" class="btn btn--sm">Kopiér opstilling</button>
-      </div>
+      </div>`}
       ${renderAdminPitch(m, state.players, esc)}
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <h3 class="card__title" style="margin:0">Spillerstats</h3>
-        <button type="button" id="btn-sync-ks" class="btn btn--ghost btn--sm">KS fra stemmer</button>
+        ${hist ? '' : '<button type="button" id="btn-sync-ks" class="btn btn--ghost btn--sm">Tildel kampens spiller fra stemmer</button>'}
       </div>
-      <p class="hint">KS kun for spillere der spillede. Flere KS ved stemmelighed.</p>
+      <p class="hint">Kampens spiller (MOTM) — kun spillere der spillede. Flere MOTM ved stemmelighed.</p>
       ${renderStatsTable(m)}
     </div>`;
 
-  bindAdminPitch(m);
-  bindStatsTable(m);
-
-  $('m-date')?.addEventListener('change', () => {
-    m.d = $('m-date').value;
-    markDirty();
-    renderMatchNav();
-  });
-  $('m-opp')?.addEventListener('input', () => {
-    m.o = $('m-opp').value.trim();
-    markDirty();
-    renderMatchNav();
-  });
-  ['m-gf', 'm-ga'].forEach((id) => {
-    $(id)?.addEventListener('input', () => {
-      m.gf = +$('m-gf').value || 0;
-      m.ga = +$('m-ga').value || 0;
+  if (!hist) {
+    bindAdminPitch(m);
+    $('m-date')?.addEventListener('change', () => {
+      m.d = $('m-date').value;
       markDirty();
       renderMatchNav();
     });
-  });
+    $('m-opp')?.addEventListener('input', () => {
+      m.o = $('m-opp').value.trim();
+      markDirty();
+      renderMatchNav();
+    });
+    ['m-gf', 'm-ga'].forEach((id) => {
+      $(id)?.addEventListener('input', () => {
+        m.gf = +$('m-gf').value || 0;
+        m.ga = +$('m-ga').value || 0;
+        markDirty();
+        renderMatchNav();
+      });
+    });
 
-  $('btn-copy-lineup')?.addEventListener('click', () => {
-    const from = $('lineup-copy-from').value;
-    if (from === '') { showToast('Vælg en kamp'); return; }
-    const src = state.matches[+from]?.lineup;
-    if (!src?.xi?.length) { showToast('Ingen opstilling'); return; }
-    m.lineup = cloneLineup(src);
-    markDirty();
-    renderMatchDetail();
-    showToast('Opstilling kopieret');
-  });
+    $('btn-copy-lineup')?.addEventListener('click', () => {
+      const from = $('lineup-copy-from').value;
+      if (from === '') { showToast('Vælg en kamp'); return; }
+      const src = state.matches[+from]?.lineup;
+      if (!src?.xi?.length) { showToast('Ingen opstilling'); return; }
+      m.lineup = cloneLineup(src);
+      markDirty();
+      renderMatchDetail();
+      showToast('Opstilling kopieret');
+    });
 
-  $('btn-dbu-match')?.addEventListener('click', () => importDbuForMatch(m));
+    $('btn-dbu-match')?.addEventListener('click', () => importDbuForMatch(m));
 
-  $('btn-sync-ks')?.addEventListener('click', () => {
-    syncKsFromVotes(m);
-    markDirty();
-    renderMatchDetail();
-    showToast('KS opdateret fra stemmer');
-  });
+    $('btn-sync-ks')?.addEventListener('click', () => {
+      syncKsFromVotes(m);
+      markDirty();
+      renderMatchDetail();
+      showToast('Kampens spiller opdateret fra stemmer');
+    });
 
-  $('btn-delete-match')?.addEventListener('click', () => deleteMatch(matchIdx));
+    $('btn-delete-match')?.addEventListener('click', () => deleteMatch(matchIdx));
+  } else {
+    $('match-detail')?.querySelectorAll('[data-key]').forEach((btn) => { btn.disabled = true; });
+    $('match-detail')?.querySelectorAll('input, select, button').forEach((inp) => {
+      if (!inp.closest('.match-detail-head')) inp.disabled = true;
+    });
+  }
+  bindStatsTable(m);
+  if (hist) {
+    $('match-detail')?.querySelectorAll('.stats-table input, .stat-mob-card input').forEach((inp) => { inp.disabled = true; });
+  }
 }
 
 async function importDbuForMatch(m) {
@@ -929,6 +1131,8 @@ async function importDbuMatches() {
       state.matches.push({
         d: iso || dm.date || '',
         o: dm.opponent,
+        isHome: dm.isHome,
+        venue: dm.venue || null,
         gf: dm.played ? dm.gf : 0,
         ga: dm.played ? dm.ga : 0,
         pl: {},
@@ -965,51 +1169,84 @@ function renderMatchUI() {
 
 // ——— Holdinfo ———
 
+function computeCoachOverview(squad, periodId) {
+  const sessions = totalActiveSessions(squad, periodId);
+  const cancelled = sessionsForPeriod(squad, periodId).filter((s) => s.cancelled).length;
+  const pcts = state.players.map((_, i) => playerTrainingPct(squad, i, periodId)).filter((x) => x != null);
+  const avgPct = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0;
+  const matchIdxs = periodMatchIndices();
+  const playedMatches = matchIdxs.filter((i) => {
+    const m = state.matches[i];
+    return m?.o && Object.keys(m.pl || {}).length > 0;
+  }).length;
+  const notes = [];
+
+  const noTrain = state.players.filter((_, i) => sessions > 0 && playerTrainingAttended(squad, i, periodId) === 0);
+  if (noTrain.length) notes.push(`${noTrain.length} spiller(e) har ikke været til træning`);
+
+  const lowTrain = state.players.filter((_, i) => {
+    const pct = playerTrainingPct(squad, i, periodId);
+    return pct != null && pct < 50 && playerTrainingAttended(squad, i, periodId) > 0;
+  });
+  if (lowTrain.length) notes.push(`${lowTrain.length} med under 50% træningsdeltagelse`);
+
+  const missingResult = matchIdxs.filter((i) => {
+    const m = state.matches[i];
+    return m?.o && (m.gf == null || m.gf === '') && !Object.keys(m.pl || {}).length;
+  }).length;
+  if (missingResult) notes.push(`${missingResult} kamp(e) mangler resultat/stats`);
+
+  const highTrainNoMatch = state.players.filter((_, i) => {
+    const pct = playerTrainingPct(squad, i, periodId);
+    const att = playerTrainingAttended(squad, i, periodId);
+    return (pct ?? 0) >= 70 && att >= 3 && playerMatchesPlayed(i, periodId) === 0;
+  });
+  if (highTrainNoMatch.length) {
+    notes.push(`${highTrainNoMatch.length} træner flittigt uden kampe: ${highTrainNoMatch.map((p) => p.n).slice(0, 3).join(', ')}${highTrainNoMatch.length > 3 ? '…' : ''}`);
+  }
+
+  return { sessions, cancelled, avgPct, playedMatches, players: state.players.length, notes };
+}
+
 function getFilteredPlayerIndices() {
   const squad = ensureSquad();
-  let indices = state.players.map((_, i) => i);
-  if (profileFilterPos) indices = indices.filter((i) => state.players[i].pos === profileFilterPos);
-  if (profileSearch.trim()) {
-    const q = profileSearch.trim().toLowerCase();
-    indices = indices.filter((i) => state.players[i].n.toLowerCase().includes(q));
-  }
-  indices.sort((a, b) => {
+  const indices = sortedPlayerIndices();
+  if (profileSort === 'pos') return indices;
+  return indices.slice().sort((a, b) => {
     const pa = state.players[a];
     const pb = state.players[b];
+    if (profileSort === 'name') return pa.n.localeCompare(pb.n, 'da');
     if (profileSort === 'training') {
-      return (playerTrainingPct(squad, b) ?? -1) - (playerTrainingPct(squad, a) ?? -1);
+      return (playerTrainingPct(squad, b, selectedPeriod) ?? -1)
+        - (playerTrainingPct(squad, a, selectedPeriod) ?? -1);
     }
     if (profileSort === 'matches') return playerMatchesPlayed(b) - playerMatchesPlayed(a);
     if (profileSort === 'benched') {
       return (ensureProfile(pb).benchedAvailable || 0) - (ensureProfile(pa).benchedAvailable || 0);
     }
-    if (profileSort === 'width') return playerRoleCount(b) - playerRoleCount(a);
     return pa.n.localeCompare(pb.n, 'da');
   });
-  return indices;
 }
 
 function renderProfileSummary() {
   const el = $('profile-summary');
   if (!el) return;
   const squad = ensureSquad();
-  const sessions = totalActiveSessions(squad);
-  const cancelled = squad.sessions.filter((s) => s.cancelled).length;
-  const pcts = state.players.map((_, i) => playerTrainingPct(squad, i)).filter((x) => x != null);
-  const avgPct = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0;
-  const lowAtt = state.players.filter((_, i) => {
-    const p = playerTrainingPct(squad, i);
-    return p != null && p < 50;
-  }).length;
-  const totalBenched = state.players.reduce((s, p) => s + (ensureProfile(p).benchedAvailable || 0), 0);
+  const o = computeCoachOverview(squad, selectedPeriod);
+  const notesHtml = o.notes.length
+    ? `<ul class="coach-strip__notes">${o.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`
+    : '<p class="coach-strip__ok">Alt ser fint ud i denne halvsæson.</p>';
 
   el.innerHTML = `
-    <div class="profile-stat"><span class="profile-stat__val">${state.players.length}</span><span class="profile-stat__lbl">Spillere</span></div>
-    <div class="profile-stat"><span class="profile-stat__val">${sessions}</span><span class="profile-stat__lbl">Træningspas</span></div>
-    <div class="profile-stat"><span class="profile-stat__val">${cancelled}</span><span class="profile-stat__lbl">Aflyst</span></div>
-    <div class="profile-stat"><span class="profile-stat__val">${avgPct}%</span><span class="profile-stat__lbl">Gns. deltagelse</span></div>
-    <div class="profile-stat"><span class="profile-stat__val">${lowAtt}</span><span class="profile-stat__lbl">&lt;50% træning</span></div>
-    <div class="profile-stat"><span class="profile-stat__val">${totalBenched}</span><span class="profile-stat__lbl">Oversiddet (ialt)</span></div>`;
+    <div class="coach-strip card">
+      <div class="coach-strip__nums">
+        <span><strong>${o.sessions}</strong> træningspas</span>
+        <span><strong>${o.avgPct}%</strong> gns. deltagelse</span>
+        <span><strong>${o.playedMatches}</strong> kampe med stats</span>
+        <span><strong>${o.players}</strong> spillere</span>
+      </div>
+      ${notesHtml}
+    </div>`;
 }
 
 function renderTrainingCalendar() {
@@ -1017,7 +1254,7 @@ function renderTrainingCalendar() {
   const title = $('cal-title');
   if (!el || !title) return;
   const squad = ensureSquad();
-  if (!calBounds) calBounds = seasonCalendarBounds();
+  if (!calBounds) calBounds = periodCalendarBounds(selectedPeriod);
   title.textContent = `${MONTHS_DA[calMonth - 1]} ${calYear}`;
 
   const today = new Date();
@@ -1034,7 +1271,7 @@ function renderTrainingCalendar() {
     cells.map((iso) => {
       if (!iso) return '<div class="training-cal__cell training-cal__cell--empty"></div>';
       const session = sessionByDate(squad, iso);
-      const isTrain = Boolean(session);
+      const isTrain = isTrainingDay(squad, iso, selectedPeriod);
       const day = +iso.slice(8, 10);
       let cls = 'training-cal__cell';
       if (!isTrain) cls += ' training-cal__cell--off';
@@ -1080,8 +1317,8 @@ function renderTrainingDayPanel() {
     return;
   }
   const session = sessionByDate(squad, selectedTrainingDate);
-  if (!session) {
-    el.innerHTML = '<p class="hint">Ingen træning denne dag.</p>';
+  if (!session || !isTrainingDay(squad, selectedTrainingDate, selectedPeriod)) {
+    el.innerHTML = '<p class="hint">Ingen træning denne dag i valgt sæson.</p>';
     return;
   }
 
@@ -1090,11 +1327,16 @@ function renderTrainingDayPanel() {
   const total = state.players.length;
   const absent = Math.max(0, total - attended);
 
-  const rows = state.players.map((p, pi) => {
+  const readOnly = isHistoryView() || session.cancelled;
+
+  const rows = sortedPlayerIndices().map((pi) => {
+    const p = state.players[pi];
     const on = session.attendance.includes(pi);
-    return `<button type="button" class="training-att-row${on ? ' is-on' : ''}" data-pi="${pi}" ${session.cancelled ? 'disabled' : ''}>
+    return `<button type="button" class="training-att-row${on ? ' is-on' : ''}" data-pi="${pi}" ${readOnly ? 'disabled' : ''}>
       <span class="training-att-mark" aria-hidden="true">${on ? '✓' : ''}</span>
-      ${previewHtml(p, pi, 28)} <span class="training-att-name">${esc(p.n)}</span>
+      ${previewHtml(p, pi, 28)}
+      <span class="training-att-name">${esc(p.n)}</span>
+      <span class="training-att-pos">${esc(POS_LABEL[p.pos] || p.pos)}</span>
     </button>`;
   }).join('');
 
@@ -1102,7 +1344,7 @@ function renderTrainingDayPanel() {
     <h3 class="training-day-panel__title">Træning</h3>
     <p class="training-day-panel__meta">${esc(formatDateLong(session.date))}</p>
     <label class="stat-card__toggle" style="margin-bottom:12px">
-      <input type="checkbox" id="session-cancelled" ${session.cancelled ? 'checked' : ''}>
+      <input type="checkbox" id="session-cancelled" ${session.cancelled ? 'checked' : ''} ${isHistoryView() ? 'disabled' : ''}>
       Aflyst (tæller ikke med i statistik)
     </label>
     <div class="training-day-stats">
@@ -1111,8 +1353,8 @@ function renderTrainingDayPanel() {
       <div class="training-day-stat training-day-stat--na"><span class="training-day-stat__n" id="training-stat-tot">${total}</span><span class="training-day-stat__lbl">Spillere</span></div>
     </div>
     <label>Noter</label>
-    <input type="text" id="session-notes" value="${esc(session.notes || '')}" placeholder="Fx tid, bane, info…">
-    <p class="hint" style="margin-top:10px">Klik på en spiller for at tilføje/fjerne deltagelse.</p>
+    <input type="text" id="session-notes" value="${esc(session.notes || '')}" placeholder="Fx tid, bane, info…" ${isHistoryView() ? 'disabled' : ''}>
+    <p class="hint" style="margin-top:10px">${isHistoryView() ? 'Historik — deltagelse kan ikke ændres.' : 'Klik på en spiller for at tilføje/fjerne deltagelse.'}</p>
     <div class="training-att-list">${rows}</div>`;
 
   $('session-cancelled')?.addEventListener('change', (e) => {
@@ -1129,7 +1371,7 @@ function renderTrainingDayPanel() {
   });
   el.querySelectorAll('.training-att-row').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (session.cancelled) return;
+      if (isHistoryView() || session.cancelled) return;
       const pi = +btn.dataset.pi;
       toggleAttendance(session, pi);
       markDirty();
@@ -1144,7 +1386,7 @@ function renderTrainingDayPanel() {
 }
 
 $('cal-prev')?.addEventListener('click', () => {
-  if (!calBounds) calBounds = seasonCalendarBounds();
+  if (!calBounds) calBounds = periodCalendarBounds(selectedPeriod);
   calMonth--;
   if (calMonth < 1) { calMonth = 12; calYear--; }
   const minKey = calBounds.minYear * 12 + calBounds.minMonth;
@@ -1152,7 +1394,7 @@ $('cal-prev')?.addEventListener('click', () => {
   renderTrainingCalendar();
 });
 $('cal-next')?.addEventListener('click', () => {
-  if (!calBounds) calBounds = seasonCalendarBounds();
+  if (!calBounds) calBounds = periodCalendarBounds(selectedPeriod);
   calMonth++;
   if (calMonth > 12) { calMonth = 1; calYear++; }
   const maxKey = calBounds.maxYear * 12 + calBounds.maxMonth;
@@ -1160,11 +1402,14 @@ $('cal-next')?.addEventListener('click', () => {
   renderTrainingCalendar();
 });
 $('cal-today')?.addEventListener('click', () => {
-  const def = defaultCalendarMonth();
+  const def = defaultCalendarMonthForPeriod(selectedPeriod);
   calYear = def.year;
   calMonth = def.month;
   const today = new Date();
   selectedTrainingDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  if (!isTrainingDay(ensureSquad(), selectedTrainingDate, selectedPeriod)) {
+    selectedTrainingDate = null;
+  }
   renderTrainingCalendar();
   renderTrainingDayPanel();
 });
@@ -1174,40 +1419,53 @@ function renderProfileTable() {
   if (!el) return;
   const squad = ensureSquad();
   const indices = getFilteredPlayerIndices();
+  const sortBtn = (key, label) =>
+    `<button type="button" class="th-sort${profileSort === key ? ' is-on' : ''}" data-sort="${key}">${label}</button>`;
+
   if (!indices.length) {
-    el.innerHTML = '<p class="hint">Ingen spillere matcher filteret.</p>';
+    el.innerHTML = '<p class="hint">Ingen spillere endnu.</p>';
     return;
   }
 
   const rows = indices.map((pi) => {
     const p = state.players[pi];
     const pr = ensureProfile(p);
-    const pct = playerTrainingPct(squad, pi);
+    const pct = playerTrainingPct(squad, pi, selectedPeriod);
     const pctCls = pct == null ? '' : pct < 50 ? ' profile-pct--low' : ' profile-pct--ok';
     const pctTxt = pct == null ? '—' : `${pct}%`;
     const roles = roleLabelsShort(pr.coveredRoles);
     const mp = playerMatchesPlayed(pi);
     return `<tr data-pi="${pi}">
-      <td>${previewHtml(p, pi, 32)} ${esc(p.n)}</td>
+      <td><div class="profile-player-cell">${previewHtml(p, pi, 32)}<span>${esc(p.n)}</span></div></td>
       <td>${esc(POS_LABEL[p.pos] || p.pos)}</td>
       <td class="profile-roles">${roles ? esc(roles) : '<span class="hint">—</span>'}</td>
-      <td class="profile-pct${pctCls}">${pctTxt}<br><small>${playerTrainingAttended(squad, pi)}/${totalActiveSessions(squad) || '—'}</small></td>
+      <td class="profile-pct${pctCls}">${pctTxt}<br><small>${playerTrainingAttended(squad, pi, selectedPeriod)}/${totalActiveSessions(squad, selectedPeriod) || '—'}</small></td>
       <td>${mp}</td>
       <td><input type="number" min="0" class="width-mini" data-f="benched" value="${pr.benchedAvailable || 0}"></td>
       <td><input type="text" data-f="notes" value="${esc(pr.notes || '')}"></td>
     </tr>`;
   }).join('');
 
-  el.innerHTML = `<h3 class="card__title">Spilleroversigt</h3>
-    <p class="hint">Positioner redigeres under Spillere. Kampe = spillede i fantasy.</p>
+  el.innerHTML = `<div class="profile-table-head">
+      <h3 class="card__title">Spilleroversigt</h3>
+    </div>
     <div class="stats-table-wrap"><table class="profile-table">
       <thead><tr>
-        <th>Spiller</th><th>Hovedpos</th><th>Dækker</th><th>Træning</th><th>Kampe</th><th>Oversiddet</th><th>Noter</th>
+        <th>${sortBtn('name', 'Spiller')}</th>
+        <th>${sortBtn('pos', 'Position')}</th>
+        <th>Dækker</th>
+        <th>${sortBtn('training', 'Træning')}</th>
+        <th>${sortBtn('matches', 'Kampe')}</th>
+        <th>${sortBtn('benched', 'Oversiddet')}</th>
+        <th>Noter</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
 
+  bindProfileTableControls(el);
+
   el.querySelectorAll('input').forEach((inp) => {
+    if (isHistoryView()) inp.disabled = true;
     inp.addEventListener('input', () => {
       const pi = +inp.closest('tr').dataset.pi;
       const pr = ensureProfile(state.players[pi]);
@@ -1220,6 +1478,17 @@ function renderProfileTable() {
   });
 }
 
+function bindProfileTableControls(container) {
+  container.querySelectorAll('[data-sort]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      profileSort = btn.dataset.sort;
+      renderProfileTable();
+    });
+  });
+}
+
+$('period-goto-current')?.addEventListener('click', () => onPeriodChange(periodIdForDate()));
+
 function renderProfileList() {
   if (!state?.players) return;
   ensureSquad();
@@ -1229,18 +1498,7 @@ function renderProfileList() {
   renderProfileTable();
 }
 
-$('profile-filter-pos')?.addEventListener('change', (e) => {
-  profileFilterPos = e.target.value;
-  renderProfileTable();
-});
-$('profile-sort')?.addEventListener('change', (e) => {
-  profileSort = e.target.value;
-  renderProfileTable();
-});
-$('profile-search')?.addEventListener('input', (e) => {
-  profileSearch = e.target.value;
-  renderProfileTable();
-});
+$('period-select')?.addEventListener('change', (e) => onPeriodChange(e.target.value));
 
 // ——— Gem ———
 
@@ -1281,32 +1539,39 @@ async function saveSeason() {
 
 $('btn-save').addEventListener('click', saveSeason);
 
+async function loadDbuLogos() {
+  try {
+    const r = await fetch('/api/dbu-data');
+    if (r.ok) {
+      const data = await r.json();
+      dbuLogoMap = buildLogoMap(data.pool);
+    }
+  } catch { /* ignore */ }
+}
+
 async function init() {
   await loadAvatarLibrary();
+  await loadDbuLogos();
   state = await loadDefaultSeason();
   if (!state.rules) state.rules = DEFAULT_RULES;
   resetSquadMerge(state);
   ensureSquad();
-  calBounds = seasonCalendarBounds();
-  const defCal = defaultCalendarMonth();
+  const savedPeriod = localStorage.getItem(PERIOD_STORAGE_KEY);
+  const current = periodIdForDate();
+  const periods = listPeriodIds(state.squad, state.matches, current);
+  selectedPeriod = savedPeriod && periods.includes(savedPeriod) ? savedPeriod : current;
+  calBounds = periodCalendarBounds(selectedPeriod);
+  const defCal = defaultCalendarMonthForPeriod(selectedPeriod);
   calYear = defCal.year;
   calMonth = defCal.month;
   const today = new Date();
   const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  if (isTrainingDay(state.squad, todayIso)) selectedTrainingDate = todayIso;
+  if (isTrainingDay(state.squad, todayIso, selectedPeriod)) selectedTrainingDate = todayIso;
   matchIdx = Math.max(0, (state.matches?.length || 1) - 1);
   markClean();
   setSaveStatus('');
 
-  $('live-url').href = LIVE_URL;
-  $('live-url').textContent = LIVE_URL;
-  $('btn-preview').href = LIVE_URL;
-
-  if (useSupabase) {
-    const { data: { user } } = await supabase.auth.getUser();
-    $('coach-label').textContent = user?.email || '';
-  }
-
+  renderPeriodNav();
   renderPlayers();
   renderMatchUI();
   renderProfileList();

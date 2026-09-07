@@ -53,19 +53,20 @@ export function playerAvatarHtml(player, index, size = 48, extraClass = '', vari
   </span>`;
 }
 
-export function playerHeroCard(player, index, { pts } = {}) {
+export function playerHeroCard(player, index, { pts, label, meta } = {}) {
   ensureCoveredRoles(player);
   const roles = roleLabelsShort(player.profile?.coveredRoles);
-  const posLine = roles
-    ? `${pts ?? '–'} pt · ${roles}`
-    : `${pts ?? '–'} pt · ${posKey(player)}`;
-  return `<div class="leader-pill">
-    ${playerAvatarHtml(player, index, 52)}
-    <div class="leader-pill__info">
-      <span class="leader-pill__name">${esc(player?.n || '')}</span>
-      <span class="leader-pill__pts">${esc(posLine)}</span>
-    </div>
-  </div>`;
+  const posMeta = roles || posKey(player);
+  const metaText = meta ?? `${pts ?? '–'} point · ${posMeta}`;
+  return `<button type="button" class="leader">
+    ${playerAvatarHtml(player, index, 56)}
+    <span class="leader__body">
+      <span class="leader__label">${esc(label || 'Fører stillingen')}</span>
+      <span class="leader__name">${esc(player?.n || '')}</span>
+      <span class="leader__meta">${esc(metaText)}</span>
+    </span>
+    ${pts != null ? `<span class="leader__pts">${pts}</span>` : ''}
+  </button>`;
 }
 
 export { CREST, POS_BG };
