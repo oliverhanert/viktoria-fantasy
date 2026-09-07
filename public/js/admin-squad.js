@@ -2,7 +2,30 @@
 
 export const TRAINING_START_WEEK = 32;
 export const TRAINING_START_YEAR = 2025;
-export const TRAINING_SEASON_END = '2026-06-30';
+
+/** Sæson slutter 30. juni — efter sommerferie starter ny sæson (uge 32). */
+export function activeSeasonEnd(date = new Date()) {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  // Jul–dec: vi er i sæsonen der slutter næste sommer. Jan–jun: slutter i år.
+  const endYear = m >= 7 ? y + 1 : y;
+  return `${endYear}-06-30`;
+}
+
+export function generateTrainingSessions(until = activeSeasonEnd()) {
+  const out = [];
+  let mon = mondayOfISOWeek(TRAINING_START_YEAR, TRAINING_START_WEEK);
+  const end = new Date(until + 'T23:59:59');
+  while (new Date(mon + 'T12:00:00') <= end) {
+    out.push({ date: mon, cancelled: false, attendance: [], notes: '' });
+    const wed = addDays(mon, 2);
+    if (new Date(wed + 'T12:00:00') <= end) {
+      out.push({ date: wed, cancelled: false, attendance: [], notes: '' });
+    }
+    mon = addDays(mon, 7);
+  }
+  return out;
+}
 
 const MONTHS_DA = ['januar', 'februar', 'marts', 'april', 'maj', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'december'];
 const DAYS_DA = ['Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'];
@@ -27,21 +50,6 @@ export function mondayOfISOWeek(year, week) {
   const mon = new Date(week1);
   mon.setDate(week1.getDate() + (week - 1) * 7);
   return fmtLocal(mon);
-}
-
-export function generateTrainingSessions() {
-  const out = [];
-  let mon = mondayOfISOWeek(TRAINING_START_YEAR, TRAINING_START_WEEK);
-  const end = new Date(TRAINING_SEASON_END + 'T23:59:59');
-  while (new Date(mon + 'T12:00:00') <= end) {
-    out.push({ date: mon, cancelled: false, attendance: [], notes: '' });
-    const wed = addDays(mon, 2);
-    if (new Date(wed + 'T12:00:00') <= end) {
-      out.push({ date: wed, cancelled: false, attendance: [], notes: '' });
-    }
-    mon = addDays(mon, 7);
-  }
-  return out;
 }
 
 function defaultSession(date) {
@@ -103,7 +111,7 @@ export function resetSquadMerge(state) {
 export function seasonCalendarBounds() {
   const sessions = generateTrainingSessions();
   const first = sessions[0]?.date || `${TRAINING_START_YEAR}-08-01`;
-  const last = sessions[sessions.length - 1]?.date || TRAINING_SEASON_END;
+  const last = sessions[sessions.length - 1]?.date || activeSeasonEnd();
   const [fy, fm] = first.split('-').map(Number);
   const [ly, lm] = last.split('-').map(Number);
   return { first, last, minYear: fy, minMonth: fm, maxYear: ly, maxMonth: lm };
