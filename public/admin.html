@@ -15,7 +15,12 @@
 <body>
   <div id="api-banner" class="api-banner" hidden></div>
 
-  <div id="login-view" class="login">
+  <div id="auth-loading" class="auth-loading">
+    <img src="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png" alt="" class="login__crest">
+    <p>Indlæser admin…</p>
+  </div>
+
+  <div id="login-view" class="login" hidden>
     <div class="login__card">
       <img src="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png" alt="" class="login__crest">
       <h1>Fantasy Admin</h1>
@@ -105,9 +110,11 @@
         <div id="match-detail" class="match-detail"></div>
       </div>
       <div id="slot-picker" class="slot-picker" hidden>
+        <button type="button" class="slot-picker__close" id="slot-picker-close" aria-label="Luk">×</button>
         <label for="slot-picker-select">Vælg spiller</label>
         <select id="slot-picker-select"></select>
-        <button type="button" id="slot-picker-clear" class="btn btn--ghost btn--sm">Tom</button>
+        <button type="button" id="slot-picker-clear" class="btn btn--ghost btn--sm">Fjern spiller</button>
+        <button type="button" id="slot-picker-done" class="btn btn--primary btn--sm">Luk</button>
       </div>
     </section>
 
@@ -136,12 +143,19 @@
           <input type="search" id="profile-search" placeholder="Spillernavn…">
         </label>
       </div>
-      <div class="card">
-        <div class="card__row">
-          <h3 class="card__title">Træninger (man + ons)</h3>
-          <button type="button" id="btn-add-training-week" class="btn btn--sm">+ Uge</button>
+      <div class="training-layout card">
+        <div class="training-cal-wrap">
+          <div class="training-cal-nav">
+            <button type="button" id="cal-prev" class="btn btn--ghost btn--sm">‹</button>
+            <span id="cal-title" class="training-cal-title"></span>
+            <button type="button" id="cal-next" class="btn btn--ghost btn--sm">›</button>
+          </div>
+          <div id="training-calendar" class="training-cal"></div>
+          <p class="hint">Grønne dage = træning (man/ons fra uge 32). Klik for at registrere deltagelse.</p>
         </div>
-        <div id="training-weeks" class="training-weeks"></div>
+        <div id="training-day-panel" class="training-day-panel">
+          <p class="hint">Vælg en træningsdag i kalenderen.</p>
+        </div>
       </div>
       <div id="profile-table-wrap" class="card"></div>
     </section>

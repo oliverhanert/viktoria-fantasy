@@ -2,6 +2,18 @@ import { initSupabase, getSupabase, authHeaders } from './supabase-client.js';
 import { playerAvatarHtml } from './player-avatar.js';
 import { renderAdminPitch, BENCH_COUNT } from './pitch.js';
 import { pomIndices } from './fantasy-engine.js';
+import {
+  ensureSquad as mergeSquad,
+  totalActiveSessions,
+  playerTrainingAttended,
+  playerTrainingPct,
+  sessionByDate,
+  formatDateLong,
+  calendarCells,
+  isTrainingDay,
+  MONTHS_DA,
+  DAYS_DA,
+} from './admin-squad.js';
 
 const TOKEN_KEY = 'vf_admin_token';
 const LIVE_URL = '/standings.html';
@@ -30,6 +42,9 @@ let profileSort = 'name';
 let profileSearch = '';
 let authBooted = false;
 
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth() + 1;
+let selectedTrainingDate = null;
 let slotPickerTarget = null;
 
 let state = null;
@@ -128,8 +143,21 @@ async function getHeaders() {
     : { 'Content-Type': 'application/json' };
 }
 
-function showApp() { $('login-view').hidden = true; $('app-view').hidden = false; }
-function showLogin() { $('login-view').hidden = false; $('app-view').hidden = true; }
+function showApp() {
+  $('auth-loading').hidden = true;
+  $('login-view').hidden = true;
+  $('app-view').hidden = false;
+}
+function showLogin() {
+  $('auth-loading').hidden = true;
+  $('login-view').hidden = false;
+  $('app-view').hidden = true;
+}
+function showAuthLoading() {
+  $('auth-loading').hidden = false;
+  $('login-view').hidden = true;
+  $('app-view').hidden = true;
+}
 
 async function checkApi() {
   const banner = $('api-banner');
@@ -535,51 +563,14 @@ function ensureProfile(p) {
 }
 
 function ensureSquad() {
-  if (!state.squad) state.squad = { weeks: [] };
-  if (!state.squad.weeks) state.squad.weeks = [];
+  mergeSquad(state);
   return state.squad;
 }
 
-function mondayOfWeek(d = new Date()) {
-  const x = new Date(d);
-  const day = x.getDay();
-  x.setDate(x.getDate() - (day === 0 ? 6 : day - 1));
-  return x.toISOString().slice(0, 10);
-}
-
-function wednesdayOfMonday(monIso) {
-  const x = new Date(monIso + 'T12:00:00');
-  x.setDate(x.getDate() + 2);
-  return x.toISOString().slice(0, 10);
-}
-
-function weekLabel(monIso) {
-  const d = new Date(monIso + 'T12:00:00');
-  const months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
-  return `Uge ${monIso.slice(5)} · ${d.getDate()}. ${months[d.getMonth()]}`;
-}
-
-function totalTrainingSessions() {
-  return ensureSquad().weeks.length * 2;
-}
-
-function playerTrainingAttended(pi) {
-  let n = 0;
-  for (const w of ensureSquad().weeks) {
-    if (w.monAtt?.includes(pi)) n++;
-    if (w.wedAtt?.includes(pi)) n++;
-  }
-  return n;
-}
-
-function playerTrainingPct(pi) {
-  const total = totalTrainingSessions();
-  if (!total) return null;
-  return Math.round((playerTrainingAttended(pi) / total) * 100);
-}
-
-function playerMatchesPlayed(pi) {
-  return (state.matches || []).filter((m) => m.pl?.[pi] != null).length;
+function closeSlotPicker() {
+  slotPickerTarget = null;
+  const el = $('slot-picker');
+  if (el) el.hidden = true;
 }
 
 function playerMaxWidth(pi) {
@@ -587,16 +578,8 @@ function playerMaxWidth(pi) {
   return Math.max(w.GK || 0, w.DEF || 0, w.MID || 0, w.ATT || 0);
 }
 
-function toggleTrainingAtt(weekIdx, day, playerIdx) {
-  const w = ensureSquad().weeks[weekIdx];
-  const key = day === 'mon' ? 'monAtt' : 'wedAtt';
-  if (!w[key]) w[key] = [];
-  const i = w[key].indexOf(playerIdx);
-  if (i >= 0) w[key].splice(i, 1);
-  else w[key].push(playerIdx);
-  markDirty();
-  renderProfileSummary();
-  renderProfileTable();
+function playerMatchesPlayed(pi) {
+  return (state.matches || []).filter((m) => m.pl?.[pi] != null).length;
 }
 
 function deleteMatch(idx) {
@@ -703,6 +686,12 @@ $('slot-picker-clear')?.addEventListener('click', () => {
   renderMatchDetail();
 });
 
+$('slot-picker-close')?.addEventListener('click', closeSlotPicker);
+$('slot-picker-done')?.addEventListener('click', closeSlotPicker);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSlotPicker();
+});
+
 function renderStatsTable(m) {
   const rows = state.players.map((p, i) => {
     const st = m.pl?.[i] || {};
@@ -766,6 +755,7 @@ function bindStatsTable(m) {
 }
 
 function renderMatchDetail() {
+  closeSlotPicker();
   ensureMatch();
   const m = state.matches[matchIdx];
   ensureLineup(m);
@@ -798,16 +788,14 @@ function renderMatchDetail() {
     </div>
     <div class="card">
       <h3 class="card__title">Opstilling 4-3-3</h3>
+      <p class="hint">Klik på en plads på banen for at vælge spiller. Vil du genbruge en opstilling? Vælg en tidligere kamp og kopiér.</p>
       <div class="lineup-tools">
         <select id="lineup-copy-from" class="lineup-tools__select">
-          <option value="">Kopiér fra kamp…</option>${copyOpts}
+          <option value="">Kopiér opstilling fra kamp…</option>${copyOpts}
         </select>
-        <button type="button" id="btn-copy-lineup" class="btn btn--sm">Kopiér</button>
-        <button type="button" id="btn-save-lineup-template" class="btn btn--ghost btn--sm">Gem standard</button>
-        <button type="button" id="btn-apply-lineup-template" class="btn btn--ghost btn--sm">Brug standard</button>
+        <button type="button" id="btn-copy-lineup" class="btn btn--sm">Kopiér opstilling</button>
       </div>
       ${renderAdminPitch(m, state.players, esc)}
-      <p class="hint">Klik på en plads på banen for at vælge spiller.</p>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
@@ -851,23 +839,7 @@ function renderMatchDetail() {
     showToast('Opstilling kopieret');
   });
 
-  $('btn-save-lineup-template')?.addEventListener('click', () => {
-    state.lineupTemplate = cloneLineup(m.lineup);
-    try { localStorage.setItem('vf-lineup-template', JSON.stringify(state.lineupTemplate)); } catch { /* ignore */ }
-    showToast('Standard gemt');
-  });
-
-  $('btn-apply-lineup-template')?.addEventListener('click', () => {
-    let tpl = state.lineupTemplate;
-    if (!tpl) {
-      try { tpl = JSON.parse(localStorage.getItem('vf-lineup-template') || 'null'); } catch { /* ignore */ }
-    }
-    if (!tpl?.xi?.length) { showToast('Gem en standard først'); return; }
-    m.lineup = cloneLineup(tpl);
-    markDirty();
-    renderMatchDetail();
-    showToast('Standard anvendt');
-  });
+  $('btn-dbu-match')?.addEventListener('click', () => importDbuForMatch(m));
 
   $('btn-sync-ks')?.addEventListener('click', () => {
     syncKsFromVotes(m);
@@ -876,7 +848,6 @@ function renderMatchDetail() {
     showToast('KS opdateret fra stemmer');
   });
 
-  $('btn-dbu-match')?.addEventListener('click', () => importDbuForMatch(m));
   $('btn-delete-match')?.addEventListener('click', () => deleteMatch(matchIdx));
 }
 
@@ -959,6 +930,7 @@ function renderMatchUI() {
 // ——— Holdinfo ———
 
 function getFilteredPlayerIndices() {
+  const squad = ensureSquad();
   let indices = state.players.map((_, i) => i);
   if (profileFilterPos) indices = indices.filter((i) => state.players[i].pos === profileFilterPos);
   if (profileSearch.trim()) {
@@ -969,7 +941,7 @@ function getFilteredPlayerIndices() {
     const pa = state.players[a];
     const pb = state.players[b];
     if (profileSort === 'training') {
-      return (playerTrainingPct(b) ?? -1) - (playerTrainingPct(a) ?? -1);
+      return (playerTrainingPct(squad, b) ?? -1) - (playerTrainingPct(squad, a) ?? -1);
     }
     if (profileSort === 'matches') return playerMatchesPlayed(b) - playerMatchesPlayed(a);
     if (profileSort === 'benched') {
@@ -984,93 +956,148 @@ function getFilteredPlayerIndices() {
 function renderProfileSummary() {
   const el = $('profile-summary');
   if (!el) return;
-  const sessions = totalTrainingSessions();
-  const pcts = state.players.map((_, i) => playerTrainingPct(i)).filter((x) => x != null);
+  const squad = ensureSquad();
+  const sessions = totalActiveSessions(squad);
+  const cancelled = squad.sessions.filter((s) => s.cancelled).length;
+  const pcts = state.players.map((_, i) => playerTrainingPct(squad, i)).filter((x) => x != null);
   const avgPct = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0;
   const lowAtt = state.players.filter((_, i) => {
-    const p = playerTrainingPct(i);
+    const p = playerTrainingPct(squad, i);
     return p != null && p < 50;
   }).length;
-  const totalBenched = state.players.reduce((s, p, i) => s + (ensureProfile(p).benchedAvailable || 0), 0);
+  const totalBenched = state.players.reduce((s, p) => s + (ensureProfile(p).benchedAvailable || 0), 0);
 
   el.innerHTML = `
     <div class="profile-stat"><span class="profile-stat__val">${state.players.length}</span><span class="profile-stat__lbl">Spillere</span></div>
-    <div class="profile-stat"><span class="profile-stat__val">${ensureSquad().weeks.length}</span><span class="profile-stat__lbl">Træningsuger</span></div>
     <div class="profile-stat"><span class="profile-stat__val">${sessions}</span><span class="profile-stat__lbl">Træningspas</span></div>
+    <div class="profile-stat"><span class="profile-stat__val">${cancelled}</span><span class="profile-stat__lbl">Aflyst</span></div>
     <div class="profile-stat"><span class="profile-stat__val">${avgPct}%</span><span class="profile-stat__lbl">Gns. deltagelse</span></div>
     <div class="profile-stat"><span class="profile-stat__val">${lowAtt}</span><span class="profile-stat__lbl">&lt;50% træning</span></div>
     <div class="profile-stat"><span class="profile-stat__val">${totalBenched}</span><span class="profile-stat__lbl">Oversiddet (ialt)</span></div>`;
 }
 
-function renderTrainingWeeks() {
-  const el = $('training-weeks');
-  if (!el) return;
-  const weeks = ensureSquad().weeks;
-  if (!weeks.length) {
-    el.innerHTML = '<p class="hint">Ingen træningsuger endnu. Klik + Uge for at starte.</p>';
-    return;
-  }
+function renderTrainingCalendar() {
+  const el = $('training-calendar');
+  const title = $('cal-title');
+  if (!el || !title) return;
+  const squad = ensureSquad();
+  title.textContent = `${MONTHS_DA[calMonth - 1]} ${calYear}`;
 
-  el.innerHTML = weeks.map((w, wi) => {
-    const mon = w.mon || '';
-    const wed = w.wed || (mon ? wednesdayOfMonday(mon) : '');
-    const rows = state.players.map((p, pi) => {
-      const monOn = w.monAtt?.includes(pi);
-      const wedOn = w.wedAtt?.includes(pi);
-      return `<tr>
-        <td>${esc(p.n)}</td>
-        <td><input type="checkbox" data-w="${wi}" data-day="mon" data-pi="${pi}" ${monOn ? 'checked' : ''}></td>
-        <td><input type="checkbox" data-w="${wi}" data-day="wed" data-pi="${pi}" ${wedOn ? 'checked' : ''}></td>
-      </tr>`;
+  const today = new Date().toISOString().slice(0, 10);
+  const cells = calendarCells(calYear, calMonth);
+
+  el.innerHTML =
+    DAYS_DA.map((d) => `<div class="training-cal__dow">${d}</div>`).join('') +
+    cells.map((iso) => {
+      if (!iso) return '<div class="training-cal__cell training-cal__cell--empty"></div>';
+      const session = sessionByDate(squad, iso);
+      const isTrain = Boolean(session);
+      const day = +iso.slice(8, 10);
+      let cls = 'training-cal__cell';
+      if (isTrain) cls += ' training-cal__cell--train';
+      if (session?.cancelled) cls += ' training-cal__cell--cancelled';
+      if (iso === selectedTrainingDate) cls += ' training-cal__cell--selected';
+      if (iso === today) cls += ' training-cal__cell--today';
+      return isTrain
+        ? `<button type="button" class="${cls}" data-date="${iso}">${day}</button>`
+        : `<span class="${cls}">${day}</span>`;
     }).join('');
 
-    return `<div class="training-week" data-wi="${wi}">
-      <div class="training-week__head">
-        <span class="training-week__label">${esc(weekLabel(mon || '????-??-??'))}</span>
-        <label>Man <input type="date" data-w-mon="${wi}" value="${esc(mon)}"></label>
-        <label>Ons <input type="date" data-w-wed="${wi}" value="${esc(wed)}"></label>
-        <button type="button" class="btn btn--danger btn--sm" data-del-week="${wi}">Slet uge</button>
-      </div>
-      <table class="training-grid">
-        <thead><tr><th>Spiller</th><th>Man</th><th>Ons</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-  }).join('');
-
-  el.querySelectorAll('[data-w-mon]').forEach((inp) => {
-    inp.addEventListener('change', () => {
-      const w = ensureSquad().weeks[+inp.dataset.wMon];
-      w.mon = inp.value;
-      if (!w.wed) w.wed = wednesdayOfMonday(w.mon);
-      markDirty();
-      renderTrainingWeeks();
-    });
-  });
-  el.querySelectorAll('[data-w-wed]').forEach((inp) => {
-    inp.addEventListener('change', () => {
-      ensureSquad().weeks[+inp.dataset.wWed].wed = inp.value;
-      markDirty();
-    });
-  });
-  el.querySelectorAll('[data-del-week]').forEach((btn) => {
+  el.querySelectorAll('[data-date]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (!confirm('Slet træningsugen?')) return;
-      ensureSquad().weeks.splice(+btn.dataset.delWeek, 1);
-      markDirty();
-      renderProfileList();
-    });
-  });
-  el.querySelectorAll('input[type="checkbox"][data-w]').forEach((cb) => {
-    cb.addEventListener('change', () => {
-      toggleTrainingAtt(+cb.dataset.w, cb.dataset.day, +cb.dataset.pi);
+      selectedTrainingDate = btn.dataset.date;
+      renderTrainingCalendar();
+      renderTrainingDayPanel();
     });
   });
 }
 
+function renderTrainingDayPanel() {
+  const el = $('training-day-panel');
+  if (!el) return;
+  const squad = ensureSquad();
+  if (!selectedTrainingDate) {
+    el.innerHTML = '<p class="hint">Vælg en træningsdag i kalenderen (grønne dage).</p>';
+    return;
+  }
+  const session = sessionByDate(squad, selectedTrainingDate);
+  if (!session) {
+    el.innerHTML = '<p class="hint">Ingen træning denne dag.</p>';
+    return;
+  }
+
+  const attended = session.attendance?.length || 0;
+  const total = state.players.length;
+  const absent = total - attended;
+
+  const rows = state.players.map((p, pi) => {
+    const on = session.attendance?.includes(pi);
+    return `<label class="training-att-row${on ? ' is-on' : ''}">
+      <input type="checkbox" data-pi="${pi}" ${on ? 'checked' : ''} ${session.cancelled ? 'disabled' : ''}>
+      ${previewHtml(p, pi, 28)} ${esc(p.n)}
+    </label>`;
+  }).join('');
+
+  el.innerHTML = `
+    <h3 class="training-day-panel__title">Træning</h3>
+    <p class="training-day-panel__meta">${esc(formatDateLong(session.date))}</p>
+    <label class="stat-card__toggle" style="margin-bottom:12px">
+      <input type="checkbox" id="session-cancelled" ${session.cancelled ? 'checked' : ''}>
+      Aflyst (tæller ikke med i statistik)
+    </label>
+    <div class="training-day-stats">
+      <div class="training-day-stat training-day-stat--ok"><span class="training-day-stat__n">${attended}</span><span class="training-day-stat__lbl">Deltog</span></div>
+      <div class="training-day-stat training-day-stat--no"><span class="training-day-stat__n">${absent}</span><span class="training-day-stat__lbl">Udeblev</span></div>
+      <div class="training-day-stat training-day-stat--na"><span class="training-day-stat__n">${total}</span><span class="training-day-stat__lbl">Spillere</span></div>
+    </div>
+    <label>Noter</label>
+    <input type="text" id="session-notes" value="${esc(session.notes || '')}" placeholder="Fx tid, bane, info…">
+    <p class="hint" style="margin-top:10px">Kryds af for spillere der deltog.</p>
+    <div class="training-att-list">${rows}</div>`;
+
+  $('session-cancelled')?.addEventListener('change', (e) => {
+    session.cancelled = e.target.checked;
+    markDirty();
+    renderTrainingCalendar();
+    renderTrainingDayPanel();
+    renderProfileSummary();
+    renderProfileTable();
+  });
+  $('session-notes')?.addEventListener('input', (e) => {
+    session.notes = e.target.value;
+    markDirty();
+  });
+  el.querySelectorAll('.training-att-row input').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (session.cancelled) return;
+      const pi = +cb.dataset.pi;
+      if (!session.attendance) session.attendance = [];
+      const i = session.attendance.indexOf(pi);
+      if (cb.checked && i < 0) session.attendance.push(pi);
+      if (!cb.checked && i >= 0) session.attendance.splice(i, 1);
+      markDirty();
+      renderTrainingDayPanel();
+      renderProfileSummary();
+      renderProfileTable();
+    });
+  });
+}
+
+$('cal-prev')?.addEventListener('click', () => {
+  calMonth--;
+  if (calMonth < 1) { calMonth = 12; calYear--; }
+  renderTrainingCalendar();
+});
+$('cal-next')?.addEventListener('click', () => {
+  calMonth++;
+  if (calMonth > 12) { calMonth = 1; calYear++; }
+  renderTrainingCalendar();
+});
+
 function renderProfileTable() {
   const el = $('profile-table-wrap');
   if (!el) return;
+  const squad = ensureSquad();
   const indices = getFilteredPlayerIndices();
   if (!indices.length) {
     el.innerHTML = '<p class="hint">Ingen spillere matcher filteret.</p>';
@@ -1080,7 +1107,8 @@ function renderProfileTable() {
   const rows = indices.map((pi) => {
     const p = state.players[pi];
     const pr = ensureProfile(p);
-    const pct = playerTrainingPct(pi);
+    const squad = ensureSquad();
+    const pct = playerTrainingPct(squad, pi);
     const pctCls = pct == null ? '' : pct < 50 ? ' profile-pct--low' : ' profile-pct--ok';
     const pctTxt = pct == null ? '—' : `${pct}%`;
     const roles = (pr.roles || []).join(', ');
@@ -1088,7 +1116,7 @@ function renderProfileTable() {
     return `<tr data-pi="${pi}">
       <td>${previewHtml(p, pi, 32)} ${esc(p.n)}</td>
       <td>${esc(POS_LABEL[p.pos] || p.pos)}</td>
-      <td class="profile-pct${pctCls}">${pctTxt}<br><small>${playerTrainingAttended(pi)}/${totalTrainingSessions() || '—'}</small></td>
+      <td class="profile-pct${pctCls}">${pctTxt}<br><small>${playerTrainingAttended(squad, pi)}/${totalActiveSessions(squad) || '—'}</small></td>
       <td>${mp}</td>
       <td><input type="number" min="0" class="width-mini" data-f="benched" value="${pr.benchedAvailable || 0}"></td>
       <td><input type="text" data-f="roles" value="${esc(roles)}" placeholder="HB, CB…"></td>
@@ -1131,21 +1159,10 @@ function renderProfileList() {
   if (!state?.players) return;
   ensureSquad();
   renderProfileSummary();
-  renderTrainingWeeks();
+  renderTrainingCalendar();
+  renderTrainingDayPanel();
   renderProfileTable();
 }
-
-$('btn-add-training-week')?.addEventListener('click', () => {
-  const mon = mondayOfWeek();
-  ensureSquad().weeks.unshift({
-    mon,
-    wed: wednesdayOfMonday(mon),
-    monAtt: [],
-    wedAtt: [],
-  });
-  markDirty();
-  renderProfileList();
-});
 
 $('profile-filter-pos')?.addEventListener('change', (e) => {
   profileFilterPos = e.target.value;
@@ -1203,6 +1220,8 @@ async function init() {
   state = await loadDefaultSeason();
   if (!state.rules) state.rules = DEFAULT_RULES;
   ensureSquad();
+  calYear = 2025;
+  calMonth = 8;
   matchIdx = Math.max(0, (state.matches?.length || 1) - 1);
   markClean();
   setSaveStatus('');
@@ -1216,7 +1235,6 @@ async function init() {
     $('coach-label').textContent = user?.email || '';
   }
 
-  try { state.lineupTemplate = JSON.parse(localStorage.getItem('vf-lineup-template') || 'null'); } catch { /* ignore */ }
   renderPlayers();
   renderMatchUI();
   renderProfileList();
@@ -1237,6 +1255,23 @@ async function enterApp(session) {
   }
 }
 
+async function waitForSession(sb) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (s) => { if (!done) { done = true; resolve(s); } };
+    const { data: { subscription } } = sb.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION') finish(session);
+    });
+    sb.auth.getSession().then(({ data: { session } }) => {
+      if (session) finish(session);
+    });
+    setTimeout(() => {
+      subscription?.unsubscribe();
+      finish(null);
+    }, 900);
+  });
+}
+
 async function boot() {
   const apiOk = await checkApi();
   const { supabase: sb, config } = await initSupabase();
@@ -1249,53 +1284,34 @@ async function boot() {
   if ($('login-email')) $('login-email').required = useSupabase;
 
   if (useSupabase) {
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session && ['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED'].includes(event)) {
-        try {
-          await enterApp(session);
-        } catch (err) {
-          if (/invitelisten|403|godkende/i.test(err.message)) {
-            authBooted = false;
-            await supabase.auth.signOut();
-            showLogin();
-            $('login-err').textContent = err.message;
-            $('login-err').hidden = false;
-          }
-        }
-      } else if (event === 'SIGNED_OUT') {
-        authBooted = false;
-        showLogin();
-      }
-    });
-
-    const { data: { session } } = await supabase.auth.getSession();
+    showAuthLoading();
+    const session = await waitForSession(supabase);
     if (session) {
       try {
         await enterApp(session);
       } catch (err) {
+        authBooted = false;
         if (/invitelisten|403|godkende/i.test(err.message)) {
-          authBooted = false;
           await supabase.auth.signOut();
           showLogin();
           $('login-err').textContent = err.message;
           $('login-err').hidden = false;
         } else {
+          showApp();
           $('api-banner').textContent = err.message;
           $('api-banner').hidden = false;
         }
       }
-      return;
+    } else {
+      showLogin();
     }
 
-    setTimeout(async () => {
-      if (authBooted) return;
-      const { data: { session: late } } = await supabase.auth.getSession();
-      if (late) {
-        try { await enterApp(late); } catch { /* ignore */ }
-      } else {
+    supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        authBooted = false;
         showLogin();
       }
-    }, 400);
+    });
     return;
   }
 

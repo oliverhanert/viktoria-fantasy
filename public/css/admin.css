@@ -86,6 +86,12 @@ input:focus, select:focus {
 
 .login__err { color: #e11d48; font-size: 0.85rem; text-align: center; margin-top: 8px; }
 
+.auth-loading {
+  min-height: 100dvh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
+  color: var(--muted); font-weight: 600;
+}
+
 .auth-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
 .auth-tabs__btn {
   flex: 1;
@@ -374,12 +380,76 @@ button.btn, a.btn {
 .slot-picker {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
   background: #fff; border: 1px solid var(--line); border-radius: 12px;
-  padding: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+  padding: 12px 12px 12px 36px; box-shadow: 0 8px 30px rgba(0,0,0,0.15);
   z-index: 150; display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;
-  max-width: min(96vw, 400px);
+  max-width: min(96vw, 420px);
+}
+.slot-picker__close {
+  position: absolute; top: 8px; right: 8px;
+  width: 28px; height: 28px; padding: 0; border: none;
+  background: #f1f5f9; border-radius: 50%; font-size: 1.1rem;
+  cursor: pointer; line-height: 1;
 }
 .slot-picker label { margin: 0; }
 .slot-picker select { margin: 0; min-width: 160px; }
+
+.training-layout {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  padding: 14px; margin-bottom: 12px;
+}
+@media (max-width: 800px) { .training-layout { grid-template-columns: 1fr; } }
+
+.training-cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.training-cal-title { font-weight: 800; font-size: 0.95rem; text-transform: capitalize; }
+
+.training-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.training-cal__dow {
+  font-size: 0.62rem; font-weight: 700; color: var(--muted);
+  text-align: center; padding: 4px 0;
+}
+.training-cal__cell {
+  aspect-ratio: 1; min-height: 36px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: transparent; font: inherit; font-size: 0.78rem;
+  cursor: default; padding: 2px;
+}
+.training-cal__cell--empty { visibility: hidden; }
+.training-cal__cell--train {
+  cursor: pointer; background: #ecfdf5; border-color: #a7f3d0;
+  font-weight: 700;
+}
+.training-cal__cell--train:hover { background: #d1fae5; }
+.training-cal__cell--cancelled { background: #fef2f2; border-color: #fecaca; color: #b91c1c; text-decoration: line-through; }
+.training-cal__cell--selected { box-shadow: 0 0 0 2px var(--accent); }
+.training-cal__cell--today { outline: 1px dashed var(--accent); }
+
+.training-day-panel {
+  background: #fafafa; border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px; min-height: 200px;
+}
+.training-day-panel__title { margin: 0 0 4px; font-size: 1rem; }
+.training-day-panel__meta { font-size: 0.78rem; color: var(--muted); margin: 0 0 12px; }
+.training-day-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;
+}
+.training-day-stat {
+  text-align: center; padding: 8px; border-radius: 8px; background: #fff;
+  border: 1px solid var(--line);
+}
+.training-day-stat__n { font-weight: 800; font-size: 1.1rem; display: block; }
+.training-day-stat__lbl { font-size: 0.62rem; color: var(--muted); font-weight: 700; }
+.training-day-stat--ok .training-day-stat__n { color: var(--green); }
+.training-day-stat--no .training-day-stat__n { color: #e11d48; }
+.training-day-stat--na .training-day-stat__n { color: var(--muted); }
+
+.training-att-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; }
+.training-att-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 8px; background: #fff;
+  border: 1px solid var(--line); cursor: pointer; font-size: 0.82rem;
+}
+.training-att-row.is-on { background: #ecfdf5; border-color: #86efac; }
+.training-att-row input { margin: 0; width: auto; }
 
 /* Holdinfo */
 .match-detail-head {
