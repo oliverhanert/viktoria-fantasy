@@ -3,6 +3,16 @@ import { playerAvatarHtml, playerHeroCard } from './player-avatar.js';
 import { fetchDbuData } from './dbu-client.js';
 import { assignFromLineup, renderPitch } from './pitch.js';
 import { buildLogoMap, matchLogosHtml } from './team-logos.js';
+import { ensureCoveredRoles, roleLabelsShort, roleLabelsLong } from './player-roles.js';
+
+const POS_LABEL = { GK: 'Målmand', DEF: 'Forsvar', MID: 'Midtbane', ATT: 'Angreb' };
+
+function playerPosLine(player) {
+  ensureCoveredRoles(player);
+  const main = POS_LABEL[player?.pos] || player?.pos || '';
+  const roles = roleLabelsShort(player.profile?.coveredRoles);
+  return roles ? `${main} · ${roles}` : main;
+}
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -249,7 +259,7 @@ export function initStandings(D, dbu = {}) {
     showSheet(
       esc(dispName(i)),
       `${total} point`,
-      `<div class="ov-player">${playerAvatarHtml(players[i], i, 64)}<strong>${total} pt</strong></div>${catHtml}`
+      `<div class="ov-player">${playerAvatarHtml(players[i], i, 64)}<strong>${total} pt</strong><p class="ov-pos">${esc(playerPosLine(players[i]))}</p>${roleLabelsLong(players[i].profile?.coveredRoles) ? `<p class="ov-roles">${esc(roleLabelsLong(players[i].profile.coveredRoles))}</p>` : ''}</div>${catHtml}`
     );
   }
 
@@ -309,7 +319,7 @@ export function initStandings(D, dbu = {}) {
             ${playerAvatarHtml(players[row.i], row.i, 44)}
             <div class="lb-info">
               <span class="lb-name">${esc(dispName(row.i))}</span>
-              <span class="lb-pos">${esc(players[row.i]?.pos || '')}</span>
+              <span class="lb-pos">${esc(playerPosLine(players[row.i]))}</span>
             </div>
             <span class="lb-delta${delta > 0 ? ' up' : delta < 0 ? ' down' : ''}">${eff.played ? (delta > 0 ? '+' + delta : delta) : ''}</span>
             <span class="lb-pts">${row.pts}</span>

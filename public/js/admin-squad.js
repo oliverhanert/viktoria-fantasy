@@ -7,20 +7,26 @@ export const TRAINING_SEASON_END = '2026-06-30';
 const MONTHS_DA = ['januar', 'februar', 'marts', 'april', 'maj', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'december'];
 const DAYS_DA = ['Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'];
 
+function fmtLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function addDays(iso, n) {
   const d = new Date(iso + 'T12:00:00');
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return fmtLocal(d);
 }
 
 export function mondayOfISOWeek(year, week) {
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const day = jan4.getUTCDay() || 7;
-  const week1 = new Date(jan4);
-  week1.setUTCDate(jan4.getUTCDate() - day + 1);
+  const jan4 = new Date(year, 0, 4);
+  const day = jan4.getDay() || 7;
+  const week1 = new Date(year, 0, 4 - day + 1);
   const mon = new Date(week1);
-  mon.setUTCDate(week1.getUTCDate() + (week - 1) * 7);
-  return mon.toISOString().slice(0, 10);
+  mon.setDate(week1.getDate() + (week - 1) * 7);
+  return fmtLocal(mon);
 }
 
 export function generateTrainingSessions() {
@@ -70,7 +76,7 @@ export function mergeSquadData(squad) {
     return {
       date: g.date,
       cancelled: Boolean(saved.cancelled),
-      attendance: Array.isArray(saved.attendance) ? [...saved.attendance] : [],
+      attendance: normalizeAttendance(saved.attendance),
       notes: saved.notes || '',
     };
   });
@@ -83,8 +89,52 @@ export function mergeSquadData(squad) {
 }
 
 export function ensureSquad(state) {
-  state.squad = mergeSquadData(state.squad);
+  if (!state.squad?._merged) {
+    state.squad = mergeSquadData(state.squad);
+    state.squad._merged = true;
+  }
   return state.squad;
+}
+
+export function resetSquadMerge(state) {
+  if (state.squad) delete state.squad._merged;
+}
+
+export function seasonCalendarBounds() {
+  const sessions = generateTrainingSessions();
+  const first = sessions[0]?.date || `${TRAINING_START_YEAR}-08-01`;
+  const last = sessions[sessions.length - 1]?.date || TRAINING_SEASON_END;
+  const [fy, fm] = first.split('-').map(Number);
+  const [ly, lm] = last.split('-').map(Number);
+  return { first, last, minYear: fy, minMonth: fm, maxYear: ly, maxMonth: lm };
+}
+
+export function defaultCalendarMonth() {
+  const { minYear, minMonth, maxYear, maxMonth } = seasonCalendarBounds();
+  const today = fmtLocal(new Date());
+  const t = new Date(today + 'T12:00:00');
+  let y = t.getFullYear();
+  let m = t.getMonth() + 1;
+  const minKey = minYear * 12 + minMonth;
+  const maxKey = maxYear * 12 + maxMonth;
+  const curKey = y * 12 + m;
+  if (curKey < minKey) { y = minYear; m = minMonth; }
+  if (curKey > maxKey) { y = maxYear; m = maxMonth; }
+  return { year: y, month: m };
+}
+
+export function normalizeAttendance(list) {
+  if (!Array.isArray(list)) return [];
+  return [...new Set(list.map((x) => +x).filter((x) => !Number.isNaN(x)))];
+}
+
+export function toggleAttendance(session, pi) {
+  if (!session.attendance) session.attendance = [];
+  session.attendance = normalizeAttendance(session.attendance);
+  const i = session.attendance.indexOf(pi);
+  if (i >= 0) session.attendance.splice(i, 1);
+  else session.attendance.push(pi);
+  return session.attendance.includes(pi);
 }
 
 export function sessionByDate(squad, date) {
@@ -100,7 +150,8 @@ export function totalActiveSessions(squad) {
 }
 
 export function playerTrainingAttended(squad, pi) {
-  return activeSessions(squad).filter((s) => s.attendance?.includes(pi)).length;
+  const p = +pi;
+  return activeSessions(squad).filter((s) => normalizeAttendance(s.attendance).includes(p)).length;
 }
 
 export function playerTrainingPct(squad, pi) {

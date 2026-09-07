@@ -136,7 +136,7 @@
             <option value="training">Trænings%</option>
             <option value="matches">Kampe</option>
             <option value="benched">Oversiddet</option>
-            <option value="width">Bredde</option>
+            <option value="width">Positioner</option>
           </select>
         </label>
         <label class="profile-toolbar__item profile-toolbar__grow">Søg
@@ -149,6 +149,7 @@
             <button type="button" id="cal-prev" class="btn btn--ghost btn--sm">‹</button>
             <span id="cal-title" class="training-cal-title"></span>
             <button type="button" id="cal-next" class="btn btn--ghost btn--sm">›</button>
+            <button type="button" id="cal-today" class="btn btn--ghost btn--sm">I dag</button>
           </div>
           <div id="training-calendar" class="training-cal"></div>
           <p class="hint">Grønne dage = træning (man/ons fra uge 32). Klik for at registrere deltagelse.</p>
@@ -173,6 +174,8 @@
           <option value="MID" selected>Midtbane</option>
           <option value="ATT">Angreb</option>
         </select>
+        <label class="modal-roles-label">Positioner spilleren dækker (4-3-3)</label>
+        <div id="modal-roles"></div>
         <p class="hint">Vælg avatar fra bibliotek eller upload egen illustration:</p>
         <div id="modal-avatar-picker" class="avatar-picker avatar-picker--modal"></div>
         <label class="avatar-upload-btn avatar-upload-btn--inline">

@@ -2,6 +2,8 @@
  * Illustrerede avatars fra bibliotek (player.photo) — ellers initialer med positionsfarve.
  */
 
+import { ensureCoveredRoles, roleLabelsShort } from './player-roles.js';
+
 const CREST = 'https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png';
 
 /** Baggrund per position */
@@ -52,11 +54,16 @@ export function playerAvatarHtml(player, index, size = 48, extraClass = '', vari
 }
 
 export function playerHeroCard(player, index, { pts } = {}) {
+  ensureCoveredRoles(player);
+  const roles = roleLabelsShort(player.profile?.coveredRoles);
+  const posLine = roles
+    ? `${pts ?? '–'} pt · ${roles}`
+    : `${pts ?? '–'} pt · ${posKey(player)}`;
   return `<div class="leader-pill">
     ${playerAvatarHtml(player, index, 52)}
     <div class="leader-pill__info">
       <span class="leader-pill__name">${esc(player?.n || '')}</span>
-      <span class="leader-pill__pts">${pts ?? '–'} pt · ${esc(posKey(player))}</span>
+      <span class="leader-pill__pts">${esc(posLine)}</span>
     </div>
   </div>`;
 }
