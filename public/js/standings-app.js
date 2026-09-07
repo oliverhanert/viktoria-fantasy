@@ -124,9 +124,9 @@ function renderPulje(dbu, { periodLabel: pl = '' } = {}) {
 
 function matchHaBadge(isHome) {
   if (isHome) {
-    return '<span class="match-ha match-ha--home" title="Hjemmekamp"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 3 10v11h7v-7h4v7h7V10L12 3z"/></svg></span>';
+    return '<span class="match-ha match-ha--home" title="Hjemmekamp">H</span>';
   }
-  return '<span class="match-ha match-ha--away" title="Udekamp"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 22h20"/><path d="M6.29 17.61 4 17l-1.5-7 1.25-1.2 7.22 2.24 5.55-5.55 2.05 1.09-3.05 8.67 2.09 1.09z"/></svg></span>';
+  return '<span class="match-ha match-ha--away" title="Udekamp">U</span>';
 }
 
 function matchCardHtml(m, fIdx, fantasyMatch) {
@@ -138,14 +138,17 @@ function matchCardHtml(m, fIdx, fantasyMatch) {
     : `<span class="badge badge-${resCls}">${resCls === 'win' ? 'Sejr' : resCls === 'draw' ? 'Uafgjort' : 'Nederlag'}</span>`;
   const hasLineup = fIdx >= 0 && fantasyMatch?.lineup;
   const venueLine = m.venue
-    ? `<div class="match-card__venue">${esc(m.venue)}</div>`
+    ? `<span class="match-card__venue">${esc(m.venue)}</span>`
     : '';
 
   return `<article class="match-card${hasLineup ? ' has-lineup' : ''}${m.isHome ? '' : ' is-away'}" data-f="${fIdx}">
     <button type="button" class="match-card__head" ${hasLineup ? '' : 'disabled'}>
       <div class="match-card__date"><span class="match-card__day">${day}</span><span class="match-card__mon">${esc(mon)}</span></div>
       <div class="match-card__body">
-        <div class="match-card__opp">${matchHaBadge(m.isHome)}<span class="match-card__opp-name">${esc(m.opponent)}</span></div>
+        <div class="match-card__row1">
+          <div class="match-card__icon">${matchHaBadge(m.isHome)}</div>
+          <div class="match-card__opp-name">${esc(m.opponent)}</div>
+        </div>
         <div class="match-card__meta">${badge}${venueLine}</div>
       </div>
       <div class="match-card__score ${resCls}">${m.played ? `${m.gf}–${m.ga}` : '–'}</div>

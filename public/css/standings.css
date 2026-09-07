@@ -26,7 +26,7 @@ body.page-standings .content { max-width: 1040px; }
   background: var(--surface);
   text-align: left;
   font: inherit;
-  color: inherit;
+  color: var(--ink);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
 }
@@ -88,7 +88,7 @@ body.page-standings .content { max-width: 1040px; }
   min-height: 40px;
 }
 
-.chip.is-on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.chip.is-on { background: var(--ink); border-color: var(--ink); color: #fff !important; }
 
 .board { display: flex; flex-direction: column; gap: 6px; }
 .board-head { display: none; }
@@ -105,6 +105,7 @@ body.page-standings .content { max-width: 1040px; }
   font: inherit;
   text-align: left;
   cursor: pointer;
+  color: var(--ink);
 }
 
 .lb-row:hover { border-color: var(--muted); }
@@ -163,6 +164,7 @@ body.page-standings .content { max-width: 1040px; }
   font: inherit;
   text-align: left;
   cursor: pointer;
+  color: var(--ink);
 }
 
 .match-card.has-lineup .match-card__head {
@@ -185,29 +187,39 @@ body.page-standings .content { max-width: 1040px; }
 .match-card__day { font-size: 0.9375rem; font-weight: 800; display: block; }
 .match-card__mon { font-size: 0.5625rem; font-weight: 800; text-transform: uppercase; color: var(--muted); }
 
-.match-card__body { min-width: 0; overflow: hidden; }
-.match-card__opp {
+.match-card__body {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 700;
-  font-size: 0.875rem;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
 }
 
-.match-card__opp-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.match-card__meta {
-  margin-top: 2px;
+.match-card__row1 {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+.match-card__icon { flex-shrink: 0; }
+
+.match-card__opp-name {
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.match-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
 }
 
 .match-card__venue {
@@ -256,12 +268,19 @@ body.page-standings .content { max-width: 1040px; }
 
 .match-ha {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 0.625rem;
+  font-weight: 800;
+  line-height: 1;
   flex-shrink: 0;
-  line-height: 0;
 }
 
-.match-ha--home { color: var(--green); }
-.match-ha--away { color: var(--amber); }
+.match-ha--home { color: var(--green); background: rgba(5, 150, 105, 0.12); }
+.match-ha--away { color: var(--amber); background: rgba(217, 119, 6, 0.12); }
 
 .badge {
   font-size: 0.625rem;
@@ -275,7 +294,7 @@ body.page-standings .content { max-width: 1040px; }
 .badge-win { color: var(--green); background: rgba(5, 150, 105, 0.1); }
 .badge-draw { color: var(--muted); background: var(--wash); }
 .badge-loss { color: var(--red); background: rgba(220, 38, 38, 0.08); }
-.badge-plan { color: var(--muted); }
+.badge-plan { color: var(--muted); background: var(--wash); text-transform: none; }
 
 .match-points {
   background: var(--surface);
