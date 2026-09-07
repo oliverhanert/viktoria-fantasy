@@ -1,7 +1,8 @@
 import { createFantasyEngine, decodeFragment } from './fantasy-engine.js';
-import { playerAvatarHtml, playerHeroCard } from './player-avatar.js';
+import { playerAvatarHtml, categoryLeadersCard } from './player-avatar.js';
 import { fetchDbuData, fetchDbuForPeriod } from './dbu-client.js';
 import { assignFromLineup, renderPitch } from './pitch.js';
+import { buildLogoMap, logoForOpponent } from './team-logos.js';
 import { ensureCoveredRoles, roleLabelsShort, roleLabelsLong } from './player-roles.js';
 import {
   periodIdForDate,
@@ -122,51 +123,57 @@ function renderPulje(dbu, { periodLabel: pl = '' } = {}) {
     </div>`;
 }
 
-function matchHaBadge(isHome) {
-  if (isHome) {
-    return '<span class="match-ha match-ha--home" title="Hjemmekamp">H</span>';
-  }
-  return '<span class="match-ha match-ha--away" title="Udekamp">U</span>';
+function opponentLogoHtml(logoMap, dbuMatch) {
+  const logo = logoForOpponent(logoMap, dbuMatch.opponent);
+  if (!logo) return '<span class="match-card__logo-ph" aria-hidden="true"></span>';
+  return `<img class="match-card__logo" src="${esc(logo)}" alt="" loading="lazy" width="24" height="24">`;
 }
 
-function matchCardHtml(m, fIdx, fantasyMatch) {
+function matchSubline(m) {
+  const ha = m.isHome ? 'Hjemme' : 'Ude';
+  const parts = [ha];
+  if (!m.played && m.time) parts.push(m.time);
+  if (m.venue) parts.push(m.venue);
+  return parts.join(' · ');
+}
+
+function matchCardHtml(m, fIdx, fantasyMatch, logoMap) {
   const day = (m.date || '').match(/^(\d+)/)?.[1] || '–';
   const mon = (m.date || '').replace(/^\d+\.\s*/, '').split(' ')[0] || '';
   const resCls = m.result || '';
-  const badge = !m.played
-    ? `<span class="badge badge-plan">${m.time ? esc(m.time) : 'Planlagt'}</span>`
-    : `<span class="badge badge-${resCls}">${resCls === 'win' ? 'Sejr' : resCls === 'draw' ? 'Uafgjort' : 'Nederlag'}</span>`;
   const hasLineup = fIdx >= 0 && fantasyMatch?.lineup;
-  const venueLine = m.venue
-    ? `<span class="match-card__venue">${esc(m.venue)}</span>`
-    : '';
+  const sub = matchSubline(m);
 
   return `<article class="match-card${hasLineup ? ' has-lineup' : ''}${m.isHome ? '' : ' is-away'}" data-f="${fIdx}">
     <button type="button" class="match-card__head" ${hasLineup ? '' : 'disabled'}>
       <div class="match-card__date"><span class="match-card__day">${day}</span><span class="match-card__mon">${esc(mon)}</span></div>
       <div class="match-card__body">
-        <div class="match-card__row1">
-          <div class="match-card__icon">${matchHaBadge(m.isHome)}</div>
+        ${opponentLogoHtml(logoMap, m)}
+        <div class="match-card__text">
           <div class="match-card__opp-name">${esc(m.opponent)}</div>
+          <div class="match-card__sub">${esc(sub)}</div>
         </div>
-        <div class="match-card__meta">${badge}${venueLine}</div>
       </div>
-      <div class="match-card__score ${resCls}">${m.played ? `${m.gf}–${m.ga}` : '–'}</div>
-      ${hasLineup ? '<span class="match-card__chev" aria-hidden="true">›</span>' : ''}
+      <div class="match-card__end">
+        <div class="match-card__score ${resCls}">${m.played ? `${m.gf}–${m.ga}` : '–'}</div>
+        ${hasLineup ? '<span class="match-card__chev" aria-hidden="true">›</span>' : ''}
+      </div>
     </button>
     <div class="match-card__expand"></div>
   </article>`;
 }
 
 function renderKampePanelOnlyDbu(dbu) {
+  const logoMap = buildLogoMap(dbu.pool);
   document.getElementById('panel-resultater').innerHTML = `<div class="match-list">${(dbu.matches || [])
-    .map((m) => matchCardHtml(m, -1, null))
+    .map((m) => matchCardHtml(m, -1, null, logoMap))
     .join('')}</div>`;
 }
 
 function renderKampePanel(dbu, fantasyMatches, openPlayer, { periodLabel: pl = '' } = {}) {
   const el = document.getElementById('panel-resultater');
   const dbuMatches = dbu.matches || [];
+  const logoMap = buildLogoMap(dbu.pool);
 
   if (!dbuMatches.length) {
     el.innerHTML = `<p class="empty">Ingen kampe i ${pl ? esc(pl) : 'denne halvsæson'}.</p>`;
@@ -178,7 +185,7 @@ function renderKampePanel(dbu, fantasyMatches, openPlayer, { periodLabel: pl = '
       .map((m) => {
         const fIdx = findFantasyMatch(fantasyMatches, m);
         const fm = fIdx >= 0 ? fantasyMatches[fIdx] : null;
-        return matchCardHtml(m, fIdx, fm);
+        return matchCardHtml(m, fIdx, fm, logoMap);
       })
       .join('')
   }</div>`;
@@ -299,8 +306,6 @@ export function initStandings(D, dbu = {}, opts = {}) {
   } = engine;
 
   let round = N || 1;
-  const cur = N ? standings(round) : { arr: [] };
-  const leader = cur.arr[0];
 
   document.getElementById('sub').textContent = N
     ? `Runde ${round}${matches[round - 1]?.o ? ' · ' + matches[round - 1].o : ''}`
@@ -350,7 +355,7 @@ export function initStandings(D, dbu = {}, opts = {}) {
 
     fantasyEl.innerHTML = `
       ${insightsHtml(fxInsights, 1)}
-      ${leader ? `<div id="leader-slot"></div>` : ''}
+      <div id="leaders-grid" class="leaders-grid"></div>
       ${N > 1 ? `<div class="round"><input type="range" min="1" max="${N}" value="${N}" id="rng"><p class="round__lbl" id="slab"></p></div>` : ''}
       <div class="stat-bar">
         <span class="stat-bar__label">Vis</span>
@@ -369,47 +374,72 @@ export function initStandings(D, dbu = {}, opts = {}) {
       return LB.find((x) => x.k === lbMode) || LB[0];
     }
 
-    function statVal(i, mode) {
-      if (mode === 'pts') return standings(round).arr.find((r) => r.i === i)?.pts ?? 0;
-      return counts(i, round)[mode] ?? 0;
+    function statVal(i, mode, rnd = round) {
+      if (mode === 'pts') return standings(rnd).arr.find((r) => r.i === i)?.pts ?? 0;
+      return counts(i, rnd)[mode] ?? 0;
+    }
+
+    function sortedRowsFor(mode, rnd = round) {
+      const curR = standings(rnd);
+      if (mode === 'pts') return curR.arr;
+      return curR.arr
+        .slice()
+        .sort((a, b) => statVal(b.i, mode, rnd) - statVal(a.i, mode, rnd) || b.pts - a.pts);
+    }
+
+    function tiedLeadersFor(mode, rnd = round) {
+      const rows = sortedRowsFor(mode, rnd);
+      if (!rows.length) return { val: 0, indices: [] };
+      const val = statVal(rows[0].i, mode, rnd);
+      const indices = rows.filter((r) => statVal(r.i, mode, rnd) === val).map((r) => r.i);
+      return { val, indices };
     }
 
     function sortedRows() {
-      const curR = standings(round);
-      if (lbMode === 'pts') return curR.arr;
-      return curR.arr
-        .slice()
-        .sort((a, b) => statVal(b.i, lbMode) - statVal(a.i, lbMode) || b.pts - a.pts);
+      return sortedRowsFor(lbMode, round);
     }
 
-    function topForMode() {
-      const rows = sortedRows();
-      return rows[0] || null;
-    }
+    function renderAllLeaders() {
+      const grid = document.getElementById('leaders-grid');
+      if (!grid) return;
 
-    function renderLeader() {
-      const slot = document.getElementById('leader-slot');
-      if (!slot) return;
-      const top = topForMode();
-      if (!top) return;
-      const cfg = modeCfg();
-      const val = statVal(top.i, lbMode);
-      const roles = roleLabelsShort(players[top.i].profile?.coveredRoles) || players[top.i]?.pos || '';
-      let meta;
-      if (lbMode === 'pts') {
-        meta = `${val} point · ${roles}`;
-      } else {
-        meta = `${top.pts} point i alt · ${roles}`;
-      }
-      slot.innerHTML = playerHeroCard(players[top.i], top.i, {
-        pts: val,
-        label: cfg.leaderLbl,
-        meta,
+      grid.innerHTML = LB
+        .map((cat) => {
+          const { val, indices: rawIndices } = tiedLeadersFor(cat.k, round);
+          let indices = rawIndices;
+          if (!indices.length) return '';
+          if (cat.k !== 'pts' && val <= 0) return '';
+          if (cat.k === 'pts' && val === 0 && indices.length > 1) indices = [indices[0]];
+
+          let meta;
+          if (cat.k === 'pts') {
+            const roles = roleLabelsShort(players[indices[0]]?.profile?.coveredRoles) || players[indices[0]]?.pos || '';
+            meta = indices.length > 1
+              ? `${val} point hver`
+              : `${val} point · ${roles}`;
+          } else if (indices.length > 1) {
+            meta = '';
+          } else {
+            meta = `${standings(round).arr.find((r) => r.i === indices[0])?.pts ?? 0} point i alt`;
+          }
+
+          return categoryLeadersCard(players, indices, {
+            label: cat.leaderLbl,
+            val,
+            meta,
+          });
+        })
+        .filter(Boolean)
+        .join('');
+
+      grid.querySelectorAll('.leader:not(.leader--tied)').forEach((btn) => {
+        btn.addEventListener('click', () => openPlayer(+btn.dataset.p));
       });
-      slot.querySelector('.leader')?.addEventListener('click', () => openPlayer(top.i));
-    }
 
-    if (leader) renderLeader();
+      grid.querySelectorAll('.leader--tied .leader__face').forEach((btn) => {
+        btn.addEventListener('click', () => openPlayer(+btn.dataset.p));
+      });
+    }
 
     function renderChips() {
       document.getElementById('chips').innerHTML = LB.map(
@@ -469,9 +499,9 @@ export function initStandings(D, dbu = {}, opts = {}) {
       }
 
       renderBoardHead();
-      renderLeader();
     }
 
+    renderAllLeaders();
     renderChips();
     renderBoard();
 
@@ -485,6 +515,7 @@ export function initStandings(D, dbu = {}, opts = {}) {
 
     document.getElementById('rng')?.addEventListener('input', (e) => {
       round = +e.target.value;
+      renderAllLeaders();
       renderBoard();
     });
 

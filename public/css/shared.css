@@ -48,44 +48,23 @@ body.page-admin {
   text-size-adjust: 100%;
 }
 
-/* Safari/iOS: undgå system-blå på knapper og formularer */
-body.page-standings button,
-body.page-admin button {
-  color: inherit;
-}
-
-body.page-standings input,
-body.page-standings select,
-body.page-standings textarea,
-body.page-admin input,
-body.page-admin select,
-body.page-admin textarea {
-  font: inherit;
-  font-size: 16px;
+/* Safari/iOS: kun interaktive lister/knapper der ellers bliver system-blå */
+body.page-standings .match-card__head,
+body.page-standings .leader,
+body.page-standings .lb-row {
   color: var(--ink);
-  -webkit-text-fill-color: var(--ink);
-  -webkit-appearance: none;
-  appearance: none;
 }
 
-body.page-admin select:not(.season-picker__select) {
-  background-color: #fff;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  padding-right: 32px;
+body.page-standings .pitch-token,
+body.page-admin .pitch-token,
+body.page-admin .admin-pitch-slot--empty,
+body.page-admin .admin-pitch-slot--filled {
+  color: #fff;
 }
 
-body.page-admin input[type="date"],
-body.page-admin input[type="time"],
-body.page-admin input[type="datetime-local"] {
-  min-height: 44px;
-}
-
-body.page-admin input[type="date"]::-webkit-date-and-time-value,
-body.page-admin input[type="time"]::-webkit-date-and-time-value {
-  text-align: left;
-  color: var(--ink);
+body.page-standings .pitch-bench__p,
+body.page-admin .pitch-bench__p {
+  color: var(--muted);
 }
 
 .app { display: flex; min-height: 100dvh; }
@@ -456,6 +435,7 @@ body.page-admin input[type="time"]::-webkit-date-and-time-value {
   cursor: pointer;
   font: inherit;
   color: #fff;
+  -webkit-text-fill-color: #fff;
 }
 
 .pitch-token__name {
@@ -721,17 +701,20 @@ body.page-admin input[type="time"]::-webkit-date-and-time-value {
   font-weight: 700;
   color: var(--ink);
   -webkit-text-fill-color: var(--ink);
-  padding: 7px 26px 7px 10px;
+  padding: 0 28px 0 10px;
+  height: 32px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background-color: var(--surface);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  color: var(--ink);
   cursor: pointer;
-  max-width: 132px;
+  width: auto;
+  max-width: 152px;
+  margin: 0;
   line-height: 1.2;
+  box-sizing: border-box;
 }
 
 .season-picker__select:hover { border-color: var(--muted); }

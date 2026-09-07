@@ -76,7 +76,14 @@ export function buildFantasyInsights(engine, round) {
       text: `${dispName(leader.i)} fører med ${gap} point foran nr. 2`,
     });
   } else if (cur.arr.length >= 2 && cur.arr[0].pts === cur.arr[1].pts) {
-    insights.push({ tone: 'info', text: 'Delt førsteplads — pointene er lige' });
+    const tied = cur.arr.filter((r) => r.pts === leader.pts);
+    const n = tied.length;
+    insights.push({
+      tone: 'info',
+      text: n === 2
+        ? `To spillere deler føringen med ${leader.pts} point`
+        : `${n} spillere deler føringen med ${leader.pts} point`,
+    });
   }
 
   const last = matches[round - 1];

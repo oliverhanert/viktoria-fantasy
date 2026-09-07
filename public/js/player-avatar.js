@@ -4,7 +4,7 @@
 
 import { ensureCoveredRoles, roleLabelsShort } from './player-roles.js';
 
-const CREST = 'https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png';
+const CREST = '/images/viktoria-logo.png';
 
 /** Baggrund per position */
 const POS_BG = {
@@ -58,7 +58,7 @@ export function playerHeroCard(player, index, { pts, label, meta } = {}) {
   const roles = roleLabelsShort(player.profile?.coveredRoles);
   const posMeta = roles || posKey(player);
   const metaText = meta ?? `${pts ?? '–'} point · ${posMeta}`;
-  return `<button type="button" class="leader">
+  return `<button type="button" class="leader" data-p="${index}">
     ${playerAvatarHtml(player, index, 56)}
     <span class="leader__body">
       <span class="leader__label">${esc(label || 'Fører stillingen')}</span>
@@ -67,6 +67,37 @@ export function playerHeroCard(player, index, { pts, label, meta } = {}) {
     </span>
     ${pts != null ? `<span class="leader__pts">${pts}</span>` : ''}
   </button>`;
+}
+
+/** Én eller flere delte kategori-førere (fx tre på Joga Bonito). */
+export function categoryLeadersCard(players, indices, { label, val, meta } = {}) {
+  if (!indices?.length) return '';
+  const multi = indices.length > 1;
+  const names = indices.map((i) => (players[i]?.n || '').split(' ')[0]).filter(Boolean).join(' · ');
+  const metaText = meta ?? (multi ? '' : `${val}`);
+
+  if (!multi) {
+    const i = indices[0];
+    return playerHeroCard(players[i], i, { pts: val, label, meta: metaText });
+  }
+
+  const faces = indices
+    .map(
+      (i) => `<button type="button" class="leader__face" data-p="${i}" aria-label="${esc(players[i]?.n || '')}">
+        ${playerAvatarHtml(players[i], i, 40, '', 'row')}
+      </button>`
+    )
+    .join('');
+
+  return `<div class="leader leader--tied">
+    <div class="leader__avatars">${faces}</div>
+    <span class="leader__body">
+      <span class="leader__label">${esc(label || '')}</span>
+      <span class="leader__name">${esc(names)}</span>
+      ${metaText ? `<span class="leader__meta">${esc(metaText)}</span>` : ''}
+    </span>
+    <span class="leader__pts">${val}</span>
+  </div>`;
 }
 
 export { CREST, POS_BG };

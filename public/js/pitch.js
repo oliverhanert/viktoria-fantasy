@@ -111,20 +111,27 @@ export function renderAdminPitch(match, players, esc) {
   const tokens = slots.map((slot, i) => {
     const pi = xi[i];
     const p = pi !== '' && pi != null ? players[pi] : null;
-    const name = p ? esc((p.n || '').split(' ')[0]) : slot.label;
-    const filled = p ? ' is-filled' : '';
-    return `<button type="button" class="admin-pitch-slot${filled}" data-key="xi" data-idx="${i}" style="left:${slot.x}%;top:${slot.y}%">
-      <span class="admin-pitch-slot__pos">${esc(slot.label)}</span>
-      <span class="admin-pitch-slot__name">${name}</span>
+    if (p) {
+      return `<button type="button" class="admin-pitch-slot admin-pitch-slot--filled pitch-token" data-key="xi" data-idx="${i}" style="left:${slot.x}%;top:${slot.y}%">
+        ${playerAvatarHtml(p, pi, 40, '', 'pitch')}
+        <span class="pitch-token__name">${esc((p.n || '').split(' ')[0])}</span>
+      </button>`;
+    }
+    return `<button type="button" class="admin-pitch-slot admin-pitch-slot--empty" data-key="xi" data-idx="${i}" style="left:${slot.x}%;top:${slot.y}%">
+      <span class="admin-pitch-slot__ghost" aria-hidden="true">${esc(slot.label)}</span>
+      <span class="pitch-token__name">${esc(slot.label)}</span>
     </button>`;
   }).join('');
 
   const benchHtml = Array.from({ length: BENCH_COUNT }, (_, i) => {
     const pi = bench[i];
     const p = pi !== '' && pi != null ? players[pi] : null;
-    const name = p ? esc(p.n) : 'Bænk ' + (i + 1);
+    const label = p ? esc((p.n || '').split(' ')[0]) : 'Bænk ' + (i + 1);
     const filled = p ? ' is-filled' : '';
-    return `<button type="button" class="admin-pitch-bench${filled}" data-key="bench" data-idx="${i}">${name}</button>`;
+    return `<button type="button" class="admin-pitch-bench${filled}" data-key="bench" data-idx="${i}">
+      ${p ? playerAvatarHtml(p, pi, 28, '', 'pitch') : ''}
+      <span>${label}</span>
+    </button>`;
   }).join('');
 
   return `<div class="admin-pitch-wrap">

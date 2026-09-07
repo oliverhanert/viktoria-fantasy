@@ -10,10 +10,7 @@ import {
   playerTrainingPct,
   sessionByDate,
   formatDateLong,
-  calendarCells,
   isTrainingDay,
-  MONTHS_DA,
-  DAYS_DA,
   periodCalendarBounds,
   defaultCalendarMonthForPeriod,
   normalizeAttendance,
@@ -36,6 +33,7 @@ import {
   bindRolePicker,
 } from './player-roles.js';
 import { buildLogoMap, logoForOpponent } from './team-logos.js';
+import { renderAdminCalendar, applyCalendarNav } from './admin-calendar.js';
 
 const TOKEN_KEY = 'vf_admin_token';
 const LIVE_URL = '/standings.html';
@@ -70,6 +68,8 @@ let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth() + 1;
 let calBounds = null;
 let selectedTrainingDate = null;
+let matchCalYear = new Date().getFullYear();
+let matchCalMonth = new Date().getMonth() + 1;
 let slotPickerTarget = null;
 
 let state = null;
@@ -635,6 +635,21 @@ function formatDateLabel(d) {
   return `${dt.getDate()}. ${months[dt.getMonth()]} ${dt.getFullYear()}`;
 }
 
+function opponentLogoHeadHtml(opponent) {
+  const src = logoForOpponent(dbuLogoMap, opponent);
+  if (src) return `<img src="${esc(src)}" class="match-detail-head__logo" alt="">`;
+  return '<span class="match-detail-head__logo-ph" aria-hidden="true"></span>';
+}
+
+function updateMatchDetailHead(m) {
+  const head = $('match-detail')?.querySelector('.match-detail-head__main');
+  if (!head) return;
+  const title = head.querySelector('.card__title');
+  const logo = head.querySelector('.match-detail-head__logo, .match-detail-head__logo-ph');
+  if (logo) logo.outerHTML = opponentLogoHeadHtml(m.o);
+  if (title) title.textContent = `${formatDateLabel(m.d)} · vs ${m.o || 'TBD'}`;
+}
+
 function daDateToIso(da) {
   if (!da) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(da)) return da;
@@ -724,9 +739,10 @@ function onPeriodChange(periodId) {
   const def = defaultCalendarMonthForPeriod(periodId);
   calYear = def.year;
   calMonth = def.month;
-  const today = new Date();
-  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  selectedTrainingDate = isTrainingDay(ensureSquad(), todayIso, periodId) ? todayIso : null;
+  matchCalYear = def.year;
+  matchCalMonth = def.month;
+  const todayIsoStr = todayIso();
+  selectedTrainingDate = isTrainingDay(ensureSquad(), todayIsoStr, periodId) ? todayIsoStr : null;
   const pmi = periodMatchIndices();
   if (pmi.length) {
     if (!pmi.includes(matchIdx)) matchIdx = pmi[pmi.length - 1];
@@ -795,39 +811,88 @@ function syncKsFromVotes(m) {
   setPom(m, maxV > 0 ? candidates : []);
 }
 
-function renderMatchNav() {
-  ensureMatch();
-  const indices = periodMatchIndices();
-  if (!indices.length) {
-    $('match-nav').innerHTML = '<p class="hint" style="padding:12px">Ingen kampe i denne halvsæson.</p>';
+function todayIso() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
+
+function matchIso(m) {
+  if (!m) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(m.d || '')) return m.d;
+  return matchDateIso(m.d) || daDateToIso(m.d) || '';
+}
+
+function matchesOnDate(iso) {
+  return (state.matches || [])
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => {
+      const d = matchIso(m);
+      return d === iso && isDateInPeriod(d, selectedPeriod);
+    });
+}
+
+function currentMatchIso() {
+  const m = state.matches?.[matchIdx];
+  return m ? matchIso(m) || null : null;
+}
+
+function selectMatchByDate(iso) {
+  const onDay = matchesOnDate(iso);
+  if (onDay.length) {
+    matchIdx = onDay[onDay.length - 1].i;
+    renderMatchUI();
     return;
   }
-  if (!indices.includes(matchIdx)) matchIdx = indices[indices.length - 1];
+  if (isHistoryView() || !isDateInPeriod(iso, selectedPeriod)) return;
+  state.matches.push({ d: iso, o: '', gf: 0, ga: 0, pl: {}, lineup: { formation: '4-3-3', xi: [], bench: [] } });
+  matchIdx = state.matches.length - 1;
+  markDirty();
+  renderMatchUI();
+  showToast('Ny kamp på valgt dato — udfyld modstander');
+}
 
-  $('match-nav').innerHTML = indices.map((i) => {
-    const m = state.matches[i];
-    const score = (m.gf != null && m.o) ? `<span class="match-nav__item__score">${m.gf}–${m.ga}</span>` : '';
-    const logo = logoForOpponent(dbuLogoMap, m.o);
-    const logoHtml = logo ? `<img src="${esc(logo)}" class="match-nav__logo" alt="" loading="lazy">` : '<span class="match-nav__logo-ph"></span>';
-    const ha = m.isHome === false
-      ? '<span class="match-nav__away" title="Udebane">↗</span>'
-      : m.isHome === true
-        ? '<span class="match-nav__home" title="Hjemme">H</span>'
-        : '';
-    return `<button type="button" class="match-nav__item${i === matchIdx ? ' is-on' : ''}" data-i="${i}">
-      ${logoHtml}
-      <div class="match-nav__item__body">
-        <div class="match-nav__item__date">${esc(formatDateLabel(m.d))}</div>
-        <div class="match-nav__item__opp">${ha} ${esc(m.o || 'TBD')} ${score}</div>
-      </div>
-    </button>`;
-  }).join('');
+function renderMatchCalendar() {
+  const el = $('match-calendar');
+  const title = $('match-cal-title');
+  if (!el) return;
+  if (!calBounds) calBounds = periodCalendarBounds(selectedPeriod);
 
-  $('match-nav').querySelectorAll('.match-nav__item').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      matchIdx = +btn.dataset.i;
-      renderMatchUI();
-    });
+  const nav = renderAdminCalendar(el, {
+    year: matchCalYear,
+    month: matchCalMonth,
+    bounds: calBounds,
+    todayIso: todayIso(),
+    selectedIso: currentMatchIso(),
+    resolveDay: (iso) => {
+      const inPeriod = isDateInPeriod(iso, selectedPeriod);
+      const onDay = matchesOnDate(iso);
+      const modifiers = [];
+      let extra = '';
+      let interactive = false;
+      let ariaLabel = '';
+
+      if (!inPeriod) {
+        modifiers.push('training-cal__cell--off');
+      } else if (onDay.length) {
+        modifiers.push('training-cal__cell--match');
+        interactive = true;
+        extra = `<span class="training-cal__dot" title="${esc(onDay.map(({ m }) => `${m.o || 'TBD'}${m.gf != null ? ` ${m.gf}-${m.ga}` : ''}`).join(', '))}"></span>`;
+        ariaLabel = onDay.map(({ m }) => `${m.o || 'TBD'}`).join(', ');
+      } else if (!isHistoryView()) {
+        modifiers.push('training-cal__cell--period');
+        interactive = true;
+        ariaLabel = 'Opret kamp';
+      }
+
+      return { modifiers, interactive, extra, ariaLabel };
+    },
+    onSelect: selectMatchByDate,
+  });
+
+  applyCalendarNav(nav, {
+    prevEl: $('match-cal-prev'),
+    nextEl: $('match-cal-next'),
+    titleEl: title,
   });
 }
 
@@ -883,18 +948,18 @@ function statRowHtml(p, i, m) {
   const dis = played ? '' : ' disabled';
   return {
     table: `<tr class="${played ? 'is-played' : ''}" data-i="${i}">
-      <td>${esc(p.n)}</td>
+      <td class="stats-table__player">${playerAvatarHtml(p, i, 28, '', 'row')}<span>${esc(p.n)}</span></td>
       <td><input type="checkbox" data-f="on" ${played ? 'checked' : ''}></td>
-      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="g" value="${st.g || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="a" value="${st.a || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="v" value="${st.v || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="j" value="${st.j || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="y" value="${st.y || 0}"></td>
-      <td class="stat-num"><input type="number" min="0" inputmode="numeric" data-f="r" value="${st.r || 0}"></td>
+      <td class="stat-num"><input class="width-mini" type="number" min="0" inputmode="numeric" data-f="g" value="${st.g || 0}"></td>
+      <td class="stat-num"><input class="width-mini" type="number" min="0" inputmode="numeric" data-f="a" value="${st.a || 0}"></td>
+      <td class="stat-num"><input class="width-mini" type="number" min="0" inputmode="numeric" data-f="v" value="${st.v || 0}"></td>
+      <td class="stat-num"><input class="width-mini" type="number" min="0" inputmode="numeric" data-f="j" value="${st.j || 0}"></td>
+      <td class="stat-num"><input class="width-mini" type="number" min="0" inputmode="numeric" data-f="y" value="${st.y || 0}"></td>
+      <td class="stat-num"><input class="width-mini" type="number" min="0" inputmode="numeric" data-f="r" value="${st.r || 0}"></td>
       <td class="ks-cell"><input type="checkbox" data-f="mom" ${ks ? 'checked' : ''}${dis}></td>
     </tr>`,
     card: `<div class="stat-mob-card${played ? ' is-played' : ''}" data-i="${i}">
-      <label class="stat-mob-card__toggle"><input type="checkbox" data-f="on" ${played ? 'checked' : ''}><span>${esc(p.n)}</span></label>
+      <label class="stat-mob-card__toggle">${playerAvatarHtml(p, i, 32, '', 'row')}<input type="checkbox" data-f="on" ${played ? 'checked' : ''}><span>${esc(p.n)}</span></label>
       <div class="stat-mob-card__grid">
         <label><span>Mål</span><input type="number" min="0" inputmode="numeric" data-f="g" value="${st.g || 0}"></label>
         <label><span>Ast</span><input type="number" min="0" inputmode="numeric" data-f="a" value="${st.a || 0}"></label>
@@ -972,13 +1037,7 @@ function renderMatchDetail() {
   const el = $('match-detail');
   const indices = periodMatchIndices();
   if (!indices.length) {
-    el.innerHTML = `<div class="card match-empty-state">
-      <h3 class="card__title">Ingen kampe</h3>
-      <p>Der er ingen kampe i <strong>${esc(periodLabel(selectedPeriod))}</strong>.</p>
-      ${isHistoryView()
-        ? '<p class="hint">Vælg en anden halvsæson i toppen, eller klik «Gå til aktuel».</p>'
-        : '<p class="hint">Tryk <strong>+ Kamp</strong> ovenfor, eller importer fra DBU.</p>'}
-    </div>`;
+    el.innerHTML = `<div class="training-day-panel"><p class="hint">Ingen kampe i denne halvsæson. Tryk <strong>+ Kamp</strong> eller importer fra DBU.</p></div>`;
     return;
   }
   if (!indices.includes(matchIdx)) matchIdx = indices[indices.length - 1];
@@ -995,8 +1054,11 @@ function renderMatchDetail() {
   ).join('');
 
   el.innerHTML = `
-    <div class="match-detail-head">
-      <h3 class="card__title">${esc(formatDateLabel(m.d))} · vs ${esc(m.o || 'TBD')}</h3>
+    <div class="match-detail-head card">
+      <div class="match-detail-head__main">
+        ${opponentLogoHeadHtml(m.o)}
+        <h3 class="card__title">${esc(formatDateLabel(m.d))} · vs ${esc(m.o || 'TBD')}</h3>
+      </div>
       ${hist ? '' : '<button type="button" id="btn-delete-match" class="btn btn--danger btn--sm">Slet kamp</button>'}
     </div>
     <div class="card">
@@ -1040,19 +1102,20 @@ function renderMatchDetail() {
     $('m-date')?.addEventListener('change', () => {
       m.d = $('m-date').value;
       markDirty();
-      renderMatchNav();
+      renderMatchCalendar();
     });
     $('m-opp')?.addEventListener('input', () => {
       m.o = $('m-opp').value.trim();
       markDirty();
-      renderMatchNav();
+      renderMatchCalendar();
+      updateMatchDetailHead(m);
     });
     ['m-gf', 'm-ga'].forEach((id) => {
       $(id)?.addEventListener('input', () => {
         m.gf = +$('m-gf').value || 0;
         m.ga = +$('m-ga').value || 0;
         markDirty();
-        renderMatchNav();
+        renderMatchCalendar();
       });
     });
 
@@ -1163,7 +1226,15 @@ $('btn-add-match')?.addEventListener('click', () => {
 $('btn-dbu-import')?.addEventListener('click', importDbuMatches);
 
 function renderMatchUI() {
-  renderMatchNav();
+  ensureMatch();
+  const indices = periodMatchIndices();
+  if (indices.length && !indices.includes(matchIdx)) matchIdx = indices[indices.length - 1];
+  const iso = currentMatchIso();
+  if (iso) {
+    matchCalYear = +iso.slice(0, 4);
+    matchCalMonth = +iso.slice(5, 7);
+  }
+  renderMatchCalendar();
   renderMatchDetail();
 }
 
@@ -1252,47 +1323,48 @@ function renderProfileSummary() {
 function renderTrainingCalendar() {
   const el = $('training-calendar');
   const title = $('cal-title');
-  if (!el || !title) return;
+  if (!el) return;
   const squad = ensureSquad();
   if (!calBounds) calBounds = periodCalendarBounds(selectedPeriod);
-  title.textContent = `${MONTHS_DA[calMonth - 1]} ${calYear}`;
 
-  const today = new Date();
-  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const cells = calendarCells(calYear, calMonth);
-  const minKey = calBounds.minYear * 12 + calBounds.minMonth;
-  const maxKey = calBounds.maxYear * 12 + calBounds.maxMonth;
-  const curKey = calYear * 12 + calMonth;
-  $('cal-prev')?.toggleAttribute('disabled', curKey <= minKey);
-  $('cal-next')?.toggleAttribute('disabled', curKey >= maxKey);
-
-  el.innerHTML =
-    DAYS_DA.map((d) => `<div class="training-cal__dow">${d}</div>`).join('') +
-    cells.map((iso) => {
-      if (!iso) return '<div class="training-cal__cell training-cal__cell--empty"></div>';
+  const nav = renderAdminCalendar(el, {
+    year: calYear,
+    month: calMonth,
+    bounds: calBounds,
+    todayIso: todayIso(),
+    selectedIso: selectedTrainingDate,
+    resolveDay: (iso) => {
       const session = sessionByDate(squad, iso);
       const isTrain = isTrainingDay(squad, iso, selectedPeriod);
-      const day = +iso.slice(8, 10);
-      let cls = 'training-cal__cell';
-      if (!isTrain) cls += ' training-cal__cell--off';
-      if (isTrain) cls += ' training-cal__cell--train';
-      if (session?.cancelled) cls += ' training-cal__cell--cancelled';
-      if (iso === selectedTrainingDate) cls += ' training-cal__cell--selected';
-      if (iso === todayIso) cls += ' training-cal__cell--today';
-      const attended = session ? normalizeAttendance(session.attendance).length : 0;
-      const dot = isTrain && attended > 0 && !session.cancelled
-        ? `<span class="training-cal__dot" title="${attended} deltog"></span>` : '';
-      return isTrain
-        ? `<button type="button" class="${cls}" data-date="${iso}"><span class="training-cal__day">${day}</span>${dot}</button>`
-        : `<span class="${cls}"><span class="training-cal__day">${day}</span></span>`;
-    }).join('');
+      const modifiers = [];
+      let extra = '';
+      let interactive = false;
 
-  el.querySelectorAll('[data-date]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      selectedTrainingDate = btn.dataset.date;
+      if (!isTrain) {
+        modifiers.push('training-cal__cell--off');
+      } else {
+        modifiers.push('training-cal__cell--train');
+        interactive = true;
+        if (session?.cancelled) modifiers.push('training-cal__cell--cancelled');
+        const attended = session ? normalizeAttendance(session.attendance).length : 0;
+        if (attended > 0 && !session?.cancelled) {
+          extra = `<span class="training-cal__dot" title="${attended} deltog"></span>`;
+        }
+      }
+
+      return { modifiers, interactive, extra };
+    },
+    onSelect: (iso) => {
+      selectedTrainingDate = iso;
       renderTrainingCalendar();
       renderTrainingDayPanel();
-    });
+    },
+  });
+
+  applyCalendarNav(nav, {
+    prevEl: $('cal-prev'),
+    nextEl: $('cal-next'),
+    titleEl: title,
   });
 }
 
@@ -1342,7 +1414,7 @@ function renderTrainingDayPanel() {
 
   el.innerHTML = `
     <h3 class="training-day-panel__title">Træning</h3>
-    <p class="training-day-panel__meta">${esc(formatDateLong(session.date))}</p>
+    <p class="training-day-panel__meta${session.cancelled ? ' training-day-panel__meta--cancelled' : ''}">${esc(formatDateLong(session.date))}</p>
     <label class="stat-card__toggle" style="margin-bottom:12px">
       <input type="checkbox" id="session-cancelled" ${session.cancelled ? 'checked' : ''} ${isHistoryView() ? 'disabled' : ''}>
       Aflyst (tæller ikke med i statistik)
@@ -1405,13 +1477,41 @@ $('cal-today')?.addEventListener('click', () => {
   const def = defaultCalendarMonthForPeriod(selectedPeriod);
   calYear = def.year;
   calMonth = def.month;
-  const today = new Date();
-  selectedTrainingDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  if (!isTrainingDay(ensureSquad(), selectedTrainingDate, selectedPeriod)) {
-    selectedTrainingDate = null;
-  }
+  const iso = todayIso();
+  selectedTrainingDate = isTrainingDay(ensureSquad(), iso, selectedPeriod) ? iso : null;
   renderTrainingCalendar();
   renderTrainingDayPanel();
+});
+
+$('match-cal-prev')?.addEventListener('click', () => {
+  if (!calBounds) calBounds = periodCalendarBounds(selectedPeriod);
+  matchCalMonth--;
+  if (matchCalMonth < 1) { matchCalMonth = 12; matchCalYear--; }
+  const minKey = calBounds.minYear * 12 + calBounds.minMonth;
+  if (matchCalYear * 12 + matchCalMonth < minKey) {
+    matchCalYear = calBounds.minYear;
+    matchCalMonth = calBounds.minMonth;
+  }
+  renderMatchCalendar();
+});
+$('match-cal-next')?.addEventListener('click', () => {
+  if (!calBounds) calBounds = periodCalendarBounds(selectedPeriod);
+  matchCalMonth++;
+  if (matchCalMonth > 12) { matchCalMonth = 1; matchCalYear++; }
+  const maxKey = calBounds.maxYear * 12 + calBounds.maxMonth;
+  if (matchCalYear * 12 + matchCalMonth > maxKey) {
+    matchCalYear = calBounds.maxYear;
+    matchCalMonth = calBounds.maxMonth;
+  }
+  renderMatchCalendar();
+});
+$('match-cal-today')?.addEventListener('click', () => {
+  const def = defaultCalendarMonthForPeriod(selectedPeriod);
+  matchCalYear = def.year;
+  matchCalMonth = def.month;
+  const iso = todayIso();
+  if (isDateInPeriod(iso, selectedPeriod)) selectMatchByDate(iso);
+  else renderMatchCalendar();
 });
 
 function renderProfileTable() {
@@ -1564,9 +1664,10 @@ async function init() {
   const defCal = defaultCalendarMonthForPeriod(selectedPeriod);
   calYear = defCal.year;
   calMonth = defCal.month;
-  const today = new Date();
-  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  if (isTrainingDay(state.squad, todayIso, selectedPeriod)) selectedTrainingDate = todayIso;
+  matchCalYear = defCal.year;
+  matchCalMonth = defCal.month;
+  const todayIsoStr = todayIso();
+  if (isTrainingDay(state.squad, todayIsoStr, selectedPeriod)) selectedTrainingDate = todayIsoStr;
   matchIdx = Math.max(0, (state.matches?.length || 1) - 1);
   markClean();
   setSaveStatus('');

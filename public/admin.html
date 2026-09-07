@@ -11,19 +11,19 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/shared.css">
   <link rel="stylesheet" href="/css/admin.css">
-  <link rel="icon" href="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png">
+  <link rel="icon" href="/images/viktoria-logo.png">
 </head>
 <body class="page-admin">
   <div id="api-banner" class="api-banner" hidden></div>
 
   <div id="auth-loading" class="auth-loading">
-    <img src="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png" alt="" class="login__crest">
+    <img src="/images/viktoria-logo.png" alt="" class="login__crest">
     <p>Indlæser admin…</p>
   </div>
 
   <div id="login-view" class="login" hidden>
     <div class="login__card">
-      <img src="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png" alt="" class="login__crest">
+      <img src="/images/viktoria-logo.png" alt="" class="login__crest">
       <h1>Fantasy Admin</h1>
       <p class="login__lead">Log ind for at opdatere spillere og kampstats. Har du ikke adgangskode? Vælg <strong>Opret konto</strong>.</p>
 
@@ -65,7 +65,7 @@
   <div id="app-view" class="app" hidden>
     <aside class="sidebar" aria-label="Admin navigation">
       <div class="sidebar__brand">
-        <img class="sidebar__crest" src="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png" alt="">
+        <img class="sidebar__crest" src="/images/viktoria-logo.png" alt="">
         <div class="sidebar__brand-text">
           <span class="sidebar__title">Viktoria</span>
           <span class="sidebar__tag">Admin</span>
@@ -102,7 +102,7 @@
     <div class="main">
       <header class="topbar">
         <div class="topbar__bar">
-          <img class="topbar__crest" src="https://file.dbu.dk/images/club/1592/Boldklubben_Viktoria.png" alt="">
+          <img class="topbar__crest" src="/images/viktoria-logo.png" alt="">
           <div class="topbar__head">
             <h1 class="topbar__title" id="page-title">Kampe</h1>
           </div>
@@ -126,16 +126,25 @@
               <strong>DBU kampprogram</strong>
               <p class="hint">Importer kampe og resultater fra DBU.</p>
             </div>
-            <button type="button" id="btn-dbu-import" class="btn btn--dbu">Importer fra DBU</button>
+            <div class="dbu-sync-bar__actions">
+              <button type="button" id="btn-dbu-import" class="btn btn--dbu">Importer fra DBU</button>
+              <button type="button" id="btn-add-match" class="btn btn--primary btn--sm">+ Kamp</button>
+            </div>
           </div>
-          <div class="match-layout">
-            <aside class="match-sidebar">
-              <div class="match-sidebar__actions">
-                <button type="button" id="btn-add-match" class="btn btn--primary btn--sm">+ Kamp</button>
+          <div class="training-layout card">
+            <div class="training-layout__grid">
+              <div class="training-cal-wrap training-cal-wrap--matches">
+                <div class="training-cal-nav">
+                  <button type="button" id="match-cal-prev" class="btn btn--ghost btn--sm" aria-label="Forrige måned">‹</button>
+                  <span id="match-cal-title" class="training-cal-title"></span>
+                  <button type="button" id="match-cal-next" class="btn btn--ghost btn--sm" aria-label="Næste måned">›</button>
+                  <button type="button" id="match-cal-today" class="btn btn--ghost btn--sm">I dag</button>
+                </div>
+                <div id="match-calendar" class="training-cal"></div>
+                <p class="hint">Blå dage = kamp. Klik for at redigere.</p>
               </div>
-              <div id="match-nav" class="match-nav"></div>
-            </aside>
-            <div id="match-detail" class="match-editor"></div>
+              <div id="match-detail" class="match-editor"></div>
+            </div>
           </div>
         </section>
 
@@ -197,11 +206,15 @@
     </nav>
 
     <div id="slot-picker" class="slot-picker" hidden>
-      <button type="button" class="slot-picker__close" id="slot-picker-close" aria-label="Luk">×</button>
-      <label for="slot-picker-select">Vælg spiller</label>
+      <div class="slot-picker__top">
+        <label for="slot-picker-select">Vælg spiller</label>
+        <button type="button" class="slot-picker__close" id="slot-picker-close" aria-label="Luk">×</button>
+      </div>
       <select id="slot-picker-select"></select>
-      <button type="button" id="slot-picker-clear" class="btn btn--ghost btn--sm">Fjern</button>
-      <button type="button" id="slot-picker-done" class="btn btn--primary btn--sm">Luk</button>
+      <div class="slot-picker__actions">
+        <button type="button" id="slot-picker-clear" class="btn btn--ghost btn--sm">Fjern</button>
+        <button type="button" id="slot-picker-done" class="btn btn--primary btn--sm">Færdig</button>
+      </div>
     </div>
 
     <div id="player-modal" class="modal" hidden>
